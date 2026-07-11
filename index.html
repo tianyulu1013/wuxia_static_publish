@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>五行卡牌查询</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-mark">五</div>
+          <div>
+            <h1>卡牌查询</h1>
+            <p id="dbMeta">读取数据库中...</p>
+          </div>
+        </div>
+
+        <label class="field">
+          <span>关键词</span>
+          <input id="queryInput" type="search" placeholder="卡名、机制、出处、作者" autocomplete="off" />
+        </label>
+
+        <label class="field">
+          <span>范围</span>
+          <select id="scopeSelect">
+            <option value="all" selected>全文</option>
+            <option value="title">名称</option>
+            <option value="identity">身份/属性</option>
+            <option value="weapons">兵器</option>
+            <option value="source_work">出处</option>
+            <option value="relationships">关系</option>
+            <option value="ability">特技文本</option>
+          </select>
+        </label>
+
+        <div class="field-grid">
+          <label class="field">
+            <span>类别</span>
+            <select id="categorySelect"></select>
+          </label>
+          <label class="field">
+            <span>作者</span>
+            <select id="authorSelect"></select>
+          </label>
+        </div>
+
+        <div class="field-grid">
+          <label class="field">
+            <span>排序</span>
+            <select id="sortSelect">
+              <option value="sheet">牌表顺序</option>
+              <option value="title">名称</option>
+              <option value="category">类别</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>数量</span>
+            <select id="limitSelect">
+              <option>30</option>
+              <option selected>60</option>
+              <option>120</option>
+              <option>240</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="actions">
+          <button id="searchButton" type="button">查询</button>
+          <button id="resetButton" type="button">重置</button>
+        </div>
+
+        <button id="statisticsButton" class="secondary-action" type="button">统计报告</button>
+
+        <div class="stats" id="statsPanel"></div>
+      </aside>
+
+      <main class="workspace">
+        <section class="results-pane">
+          <div class="pane-header">
+            <h2>结果</h2>
+            <span id="resultCount">0</span>
+          </div>
+          <div id="resultsList" class="results-list"></div>
+        </section>
+
+        <section class="detail-pane">
+          <div id="emptyState" class="empty-state">选择一张卡查看完整文本</div>
+          <article id="cardDetail" class="card-detail hidden"></article>
+        </section>
+      </main>
+    </div>
+
+    <script src="static-data.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>
