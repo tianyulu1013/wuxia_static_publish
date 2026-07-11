@@ -2,12 +2,18 @@ const state = {
   results: [],
   activeId: null,
   query: "",
+  scope: "all",
+  abilityType: "",
+  statSortMode: "count",
+  currentStats: null,
 };
 
 const els = {
   dbMeta: document.querySelector("#dbMeta"),
   query: document.querySelector("#queryInput"),
   scope: document.querySelector("#scopeSelect"),
+  abilityTypeField: document.querySelector("#abilityTypeField"),
+  abilityType: document.querySelector("#abilityTypeSelect"),
   category: document.querySelector("#categorySelect"),
   author: document.querySelector("#authorSelect"),
   sort: document.querySelector("#sortSelect"),
@@ -37,10 +43,27 @@ function categoryClass(value) {
   return `cat-${String(value || "unknown").replace(/[^a-zA-Z0-9_-]/g, "-")}`;
 }
 
-function highlight(value) {
+function highlight(value, fieldScope = "all") {
   const text = escapeHtml(value ?? "");
   const q = state.query.trim();
   if (!q) return text;
+  
+  let shouldHighlight = false;
+  if (state.scope === "all") {
+    shouldHighlight = true;
+  } else if (state.scope === fieldScope) {
+    shouldHighlight = true;
+  } else if (state.scope === "ability") {
+    if (fieldScope.startsWith("ability")) {
+      if (state.abilityType) {
+        shouldHighlight = fieldScope === `ability:${state.abilityType}`;
+      } else {
+        shouldHighlight = true;
+      }
+    }
+  }
+  
+  if (!shouldHighlight) return text;
   const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   return text.replace(new RegExp(escaped, "gi"), (match) => `<mark>${match}</mark>`);
 }
@@ -77,11 +100,16 @@ function containsAny(values, q) {
   });
 }
 
-function staticMatchesScope(card, q, scope) {
+function staticMatchesScope(card, q, scope, abilityType = "") {
   const nq = normalizeTitle(q);
   const abilities = Array.isArray(card.abilities) ? card.abilities : [];
   const units = Array.isArray(card.units) ? card.units : [];
-  if (!q) return true;
+  if (!q) {
+    if (scope === "ability" && abilityType) {
+      return abilities.some((ability) => ability.kind === abilityType);
+    }
+    return true;
+  }
   if (scope === "title") return contains(card.title, q) || contains(card.normalized_title, nq);
   if (scope === "identity") {
     return containsAny([card.identity, abilities.map((item) => item.owner_identity), units.map((unit) => [unit.identity, unit.entity_kind])], q);
@@ -92,7 +120,10 @@ function staticMatchesScope(card, q, scope) {
   if (scope === "source_work") return contains(card.source_work, q);
   if (scope === "relationships") return containsAny([card.relationships, units.map((unit) => unit.relationships)], q);
   if (scope === "ability") {
-    return abilities.some((ability) => containsAny([ability.kind, ability.name, ability.raw_name, ability.type_prefix, ability.text], q));
+    return abilities.some((ability) => {
+      if (abilityType && ability.kind !== abilityType) return false;
+      return containsAny([ability.kind, ability.name, ability.raw_name, ability.type_prefix, ability.text], q);
+    });
   }
   return containsAny([
     card.title,
@@ -156,11 +187,11 @@ function compareStaticCards(a, b, sort, q) {
     || Number(a.source_row || 0) - Number(b.source_row || 0);
 }
 
-function staticFilteredCards({ q = "", scope = "all", category = "", author = "" } = {}) {
+function staticFilteredCards({ q = "", scope = "all", abilityType = "", category = "", author = "" } = {}) {
   return Object.values(STATIC_DATA.cards)
     .filter((card) => category ? card.category === category : card.category !== "deprecated")
     .filter((card) => author ? card.author_group === author : true)
-    .filter((card) => staticMatchesScope(card, q, scope));
+    .filter((card) => staticMatchesScope(card, q, scope, abilityType));
 }
 
 function countBy(items, getter) {
@@ -209,6 +240,7 @@ function getStaticJson(url) {
     return Promise.resolve(staticStatQuery({
       q: (parsed.searchParams.get("q") || "").trim(),
       scope: parsed.searchParams.get("scope") || "all",
+      abilityType: parsed.searchParams.get("ability_type") || "",
       category: parsed.searchParams.get("category") || "",
       author: parsed.searchParams.get("author") || "",
     }));
@@ -216,11 +248,12 @@ function getStaticJson(url) {
   if (parsed.pathname.endsWith("/api/search")) {
     const q = (parsed.searchParams.get("q") || "").trim();
     const scope = parsed.searchParams.get("scope") || "all";
+    const abilityType = parsed.searchParams.get("ability_type") || "";
     const category = parsed.searchParams.get("category") || "";
     const author = parsed.searchParams.get("author") || "";
     const sort = parsed.searchParams.get("sort") || "sheet";
     const limit = Math.min(Math.max(Number(parsed.searchParams.get("limit") || 60), 1), 500);
-    const cards = staticFilteredCards({ q, scope, category, author })
+    const cards = staticFilteredCards({ q, scope, abilityType, category, author })
       .sort((a, b) => compareStaticCards(a, b, sort, q))
       .slice(0, limit)
       .map((card) => staticSummary(card, scope));
@@ -273,11 +306,11 @@ function renderResults() {
     button.dataset.id = row.id;
     button.innerHTML = `
       <div class="result-title">
-        <span>${highlight(row.title)}</span>
+        <span>${highlight(row.title, "title")}</span>
         <span class="badge ${categoryClass(row.category)}">${escapeHtml(row.category_label)}</span>
       </div>
       <div class="meta">${escapeHtml(row.author_group || "")} ${escapeHtml(row.source_work || "")} · ${escapeHtml(row.source_sheet)}!${row.source_row}</div>
-      <div class="snippet">${highlight(compact(row.snippet || row.description || row.relationships || ""))}</div>
+      <div class="snippet">${highlight(compact(row.snippet || row.description || row.relationships || ""), state.scope)}</div>
     `;
     button.addEventListener("click", () => loadCard(row.id));
     fragment.append(button);
@@ -292,10 +325,18 @@ function kv(label, value) {
   const className = ["kv", isLong ? "kv-long" : "", isIdentity && isLong ? "kv-wide" : ""]
     .filter(Boolean)
     .join(" ");
+  const labelToScope = {
+    "身份": "identity",
+    "属性": "identity",
+    "兵器": "weapons",
+    "出处": "source_work",
+    "关系": "relationships"
+  };
+  const fieldScope = labelToScope[label] || "all";
   return `
     <div class="${className}">
       <span>${escapeHtml(label)}</span>
-      <strong>${highlight(text)}</strong>
+      <strong>${highlight(text, fieldScope)}</strong>
     </div>
   `;
 }
@@ -374,13 +415,13 @@ function renderAbilityLine(line, inheritedKind = "") {
   const meta = abilityLineMeta(line, inheritedKind);
   const [typePrefix, abilityName, rest] = splitAbilityName(line);
   if (!typePrefix && !abilityName) {
-    return `<div class="ability-line ${meta.className}">${highlight(line)}</div>`;
+    return `<div class="ability-line ${meta.className}">${highlight(line, "ability")}</div>`;
   }
   return `
     <div class="ability-line ${meta.className}">
-      ${typePrefix ? `<span class="ability-type-prefix">${highlight(typePrefix)}</span>` : ""}
-      ${abilityName ? `<span class="ability-name">${highlight(abilityName)}</span>` : ""}
-      ${highlight(rest)}
+      ${typePrefix ? `<span class="ability-type-prefix">${highlight(typePrefix, "ability")}</span>` : ""}
+      ${abilityName ? `<span class="ability-name">${highlight(abilityName, "ability")}</span>` : ""}
+      ${highlight(rest, "ability")}
     </div>
   `;
 }
@@ -469,7 +510,7 @@ function renderAbilityRecords(abilities, fallbackText, options = {}) {
         .map((ability) => {
           const kind = ability.kind || "说明";
           const className = abilityClass(kind, ability.raw_name || ability.name || "");
-          const name = ability.name ? `<span class="ability-name">${highlight(ability.name)}${ability.name.endsWith("：") ? "" : "："}</span>` : "";
+          const name = ability.name ? `<span class="ability-name">${highlight(ability.name, "ability:" + kind)}${ability.name.endsWith("：") ? "" : "："}</span>` : "";
           const body = abilityBodyText(ability);
           const flags = Array.isArray(ability.review_flags) && ability.review_flags.length
             ? `<div class="ability-flags">${ability.review_flags.map((flag) => escapeHtml(flag)).join(" · ")}</div>`
@@ -478,7 +519,7 @@ function renderAbilityRecords(abilities, fallbackText, options = {}) {
             <div class="ability-block ${className}">
               <div class="ability-kind">${escapeHtml(kind)}</div>
               <div class="ability-content">
-                <div class="ability-line">${name}${highlight(body)}${showOwnerMeta ? renderOwnerMeta(ability) : ""}</div>
+                <div class="ability-line">${name}${highlight(body, "ability:" + kind)}${showOwnerMeta ? renderOwnerMeta(ability) : ""}</div>
                 ${flags}
               </div>
             </div>
@@ -493,6 +534,7 @@ function renderUnitMeta(unit) {
   const items = [];
   if (unit.life) items.push(kv("生命", unit.life));
   if (unit.life_pool) items.push(kv("共享生命", unit.life_pool));
+  if (unit.gender) items.push(kv("性别", unit.gender));
   if (unit.counts_as_characters) items.push(kv("计人数", unit.counts_as_characters));
   if (unit.entity_kind) items.push(kv("属性", unit.entity_kind));
   if (unit.identity) items.push(kv("身份", unit.identity));
@@ -643,9 +685,85 @@ function renderStructureNotes(notes) {
   `;
 }
 
-function counterList(counter, limit = 20) {
-  if (!counter || typeof counter !== "object") return "";
-  return Object.entries(counter)
+const SOURCE_WORK_TO_AUTHOR = {
+  // 古龙
+  "圆月弯刀": "古龙", "英雄无泪": "古龙", "萧十一郎": "古龙", "武林外史": "古龙", "天涯明月刀": "古龙",
+  "三少爷的剑": "古龙", "拳头": "古龙", "情人箭": "古龙", "七武器": "古龙", "七杀手": "古龙",
+  "名剑风流": "古龙", "陆小凤传奇": "古龙", "流星蝴蝶剑": "古龙", "绝代双骄": "古龙", "九月鹰飞": "古龙",
+  "剑玄录": "古龙", "浣花洗剑录": "古龙", "欢乐英雄": "古龙", "孤星传": "古龙", "飞刀又见飞刀": "古龙",
+  "多情剑客无情剑": "古龙", "大旗英雄传": "古龙", "大地飞鹰": "古龙", "楚留香传奇": "古龙", "碧玉刀": "古龙",
+  "白玉老虎": "古龙", "霸王枪": "古龙", "血鹦鹉": "古龙",
+  // 黄易
+  "寻秦记": "黄易", "日月当空": "黄易", "破碎虚空": "黄易", "凌渡宇系列": "黄易", "覆雨翻云": "黄易",
+  "大唐双龙传": "黄易", "边荒传说": "黄易",
+  // 金庸
+  "越女剑": "金庸", "鸳鸯刀": "金庸", "倚天屠龙记": "金庸", "雪山飞狐": "金庸", "笑傲江湖": "金庸",
+  "侠客行": "金庸", "天龙八部": "金庸", "书剑恩仇录": "金庸", "神雕侠侣": "金庸", "射雕英雄传": "金庸",
+  "鹿鼎记": "金庸", "连城诀": "金庸", "飞狐外传": "金庸", "碧血剑": "金庸", "白马啸西风": "金庸",
+  // 老舍
+  "断魂枪": "老舍",
+  // 李凉
+  "杨小邪": "李凉",
+  // 梁羽生
+  "云海玉弓缘": "梁羽生", "萍踪侠影录": "梁羽生",
+  // 鲁迅
+  "铸剑": "鲁迅",
+  // 温瑞安
+  "血河车": "温瑞安", "四大名捕": "温瑞安", "说英雄谁是英雄": "温瑞安", "神州奇侠": "温瑞安", "杀人者唐斩": "温瑞安",
+  "请借夫人一用": "温瑞安", "七大寇": "温瑞安", "逆水寒": "温瑞安", "大侠传奇": "温瑞安", "布衣神相": "温瑞安",
+  "白衣方振眉": "温瑞安",
+};
+
+function sortCounter(counterEntries, type) {
+  if (state.statSortMode === "count") {
+    return counterEntries.sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "zh-Hans"));
+  }
+  
+  const categoryOrder = ["战斗人物", "附加人物", "物品", "称号", "场景", "废弃记录", "未标"];
+  const abilityOrder = ["内功", "招式", "武功", "技能", "*", "字", "说明", "符卡", "未标"];
+  const authorOrder = ["金庸", "古龙", "梁羽生", "温瑞安", "黄易", "李凉", "鲁迅", "老舍", "其他", "未标"];
+  const jinyongWorksOrder = [
+    "飞狐外传", "雪山飞狐", "连城诀", "天龙八部", "射雕英雄传",
+    "白马啸西风", "鹿鼎记", "笑傲江湖", "书剑恩仇录", "神雕侠侣",
+    "侠客行", "倚天屠龙记", "碧血剑", "鸳鸯刀", "越女剑"
+  ];
+  
+  const getOrderIndex = (list, item) => {
+    const idx = list.indexOf(item);
+    return idx === -1 ? 9999 : idx;
+  };
+  
+  if (type === "category") {
+    return counterEntries.sort((a, b) => getOrderIndex(categoryOrder, a[0]) - getOrderIndex(categoryOrder, b[0]));
+  }
+  if (type === "ability") {
+    return counterEntries.sort((a, b) => getOrderIndex(abilityOrder, a[0]) - getOrderIndex(abilityOrder, b[0]));
+  }
+  if (type === "author") {
+    return counterEntries.sort((a, b) => getOrderIndex(authorOrder, a[0]) - getOrderIndex(authorOrder, b[0]));
+  }
+  if (type === "source_work") {
+    return counterEntries.sort((a, b) => {
+      const authorA = SOURCE_WORK_TO_AUTHOR[a[0]] || "其他";
+      const authorB = SOURCE_WORK_TO_AUTHOR[b[0]] || "其他";
+      const idxA = getOrderIndex(authorOrder, authorA);
+      const idxB = getOrderIndex(authorOrder, authorB);
+      if (idxA !== idxB) {
+        return idxA - idxB;
+      }
+      if (authorA === "金庸") {
+        return getOrderIndex(jinyongWorksOrder, a[0]) - getOrderIndex(jinyongWorksOrder, b[0]);
+      }
+      return a[0].localeCompare(b[0], "zh-Hans");
+    });
+  }
+  
+  return counterEntries;
+}
+
+function counterList(sortedEntries, limit = 100) {
+  if (!Array.isArray(sortedEntries)) return "";
+  return sortedEntries
     .slice(0, limit)
     .map(([key, value]) => `<li><span>${escapeHtml(key)}</span><strong>${escapeHtml(value)}</strong></li>`)
     .join("");
@@ -675,9 +793,13 @@ function filterSummary(filters) {
   return parts.length ? parts.join("；") : "当前牌库，不含废弃记录";
 }
 
-async function showStatistics() {
+async function showStatistics(forceFetch = false) {
   const filters = currentFilterParams();
-  const stats = await getJson(`/api/stat-query?${new URLSearchParams(filters).toString()}`);
+  if (forceFetch || !state.currentStats) {
+    const stats = await getJson(`/api/stat-query?${new URLSearchParams(filters).toString()}`);
+    state.currentStats = stats;
+  }
+  const stats = state.currentStats;
   state.activeId = null;
   renderResults();
   els.empty.classList.add("hidden");
@@ -688,6 +810,19 @@ async function showStatistics() {
       <span class="badge">动态</span>
     </div>
     <div class="text-block stat-filter-summary">${highlight(filterSummary(filters))}</div>
+    
+    <div class="stat-sort-switcher">
+      <span>排序方式：</span>
+      <label class="sort-radio-label">
+        <input type="radio" name="statSort" value="count" ${state.statSortMode === "count" ? "checked" : ""}>
+        <span>数量由多到少</span>
+      </label>
+      <label class="sort-radio-label">
+        <input type="radio" name="statSort" value="custom" ${state.statSortMode === "custom" ? "checked" : ""}>
+        <span>自定义分类</span>
+      </label>
+    </div>
+
     <div class="stats-grid">
       ${kv("卡牌", `${stats.card_count || 0} 张`)}
       ${kv("特技/说明", `${stats.ability_count || 0} 条`)}
@@ -696,19 +831,19 @@ async function showStatistics() {
     </div>
     <div class="section statistics-section">
       <h3>卡牌类型</h3>
-      <ul class="stat-list">${counterList(stats.category_counts)}</ul>
+      <ul class="stat-list">${counterList(sortCounter(Object.entries(stats.category_counts), "category"))}</ul>
     </div>
     <div class="section statistics-section">
       <h3>特技类型</h3>
-      <ul class="stat-list">${counterList(stats.ability_kind_counts)}</ul>
+      <ul class="stat-list">${counterList(sortCounter(Object.entries(stats.ability_kind_counts), "ability"))}</ul>
     </div>
     <div class="section statistics-section">
       <h3>作者</h3>
-      <ul class="stat-list">${counterList(stats.author_counts)}</ul>
+      <ul class="stat-list">${counterList(sortCounter(Object.entries(stats.author_counts), "author"))}</ul>
     </div>
     <div class="section statistics-section">
       <h3>出处</h3>
-      <ul class="stat-list">${counterList(stats.source_work_counts)}</ul>
+      <ul class="stat-list">${counterList(sortCounter(Object.entries(stats.source_work_counts), "source_work"))}</ul>
     </div>
     <div class="section statistics-section">
       <h3>说明</h3>
@@ -749,17 +884,28 @@ async function loadCard(id) {
   els.detail.classList.remove("hidden");
   els.detail.innerHTML = `
     <div class="detail-title">
-      <h2>${highlight(card.title)}</h2>
+      <h2>${highlight(card.title, "title")}</h2>
       <span class="badge ${categoryClass(card.category)}">${escapeHtml(card.category_label)}</span>
     </div>
     <div class="detail-grid">
-      ${kv("生命", card.life)}
-      ${kv("兵器", card.weapons)}
-      ${kv("出处", card.source_work)}
-      ${kv("作者", card.author_group)}
-      ${kv("性别", card.gender)}
-      ${kv("位置", `${card.source_sheet}!${card.source_row}`)}
-      ${kv("ID", card.id)}
+      ${(() => {
+        const isChar = card.category === "combat_characters" || card.category === "attached_characters" || card.category === "deprecated";
+        const isItem = card.category === "items";
+        let html = "";
+        if (isChar) {
+          html += kv("生命", card.life);
+          html += kv("性别", card.gender);
+          html += kv("兵器", card.weapons);
+        } else if (isItem) {
+          html += kv("类别", card.item_category);
+          html += kv("特性", card.traits);
+        }
+        html += kv("出处", card.source_work);
+        html += kv("作者", card.author_group);
+        html += kv("位置", `${card.source_sheet}!${card.source_row}`);
+        html += kv("ID", card.id);
+        return html;
+      })()}
     </div>
     ${card.image_url ? `
       <figure class="card-face">
@@ -774,7 +920,7 @@ async function loadCard(id) {
     ${renderStructureNotes(card.structure_notes)}
     <div class="section">
       <h3>关系</h3>
-      <div class="text-block">${highlight(card.relationships || "—")}</div>
+      <div class="text-block">${highlight(card.relationships || "—", "relationships")}</div>
     </div>
     ${renderReviewLayer(card.review)}
     ${renderChangeCandidates(card.change_candidates)}
@@ -783,9 +929,12 @@ async function loadCard(id) {
 
 async function runSearch() {
   state.query = els.query.value;
+  state.scope = els.scope.value;
+  state.abilityType = els.scope.value === "ability" ? els.abilityType.value : "";
   const params = new URLSearchParams({
     q: els.query.value,
     scope: els.scope.value,
+    ability_type: state.abilityType,
     category: els.category.value,
     author: els.author.value,
     sort: els.sort.value,
@@ -806,18 +955,38 @@ function bindEvents() {
   els.reset.addEventListener("click", () => {
     els.query.value = "";
     els.scope.value = "all";
+    els.abilityType.value = "";
+    els.abilityTypeField.classList.add("hidden");
     els.category.value = "";
     els.author.value = "";
     els.sort.value = "sheet";
     els.limit.value = "60";
+    state.currentStats = null;
     runSearch();
   });
-  els.statistics.addEventListener("click", showStatistics);
+  els.statistics.addEventListener("click", () => showStatistics(true));
   els.query.addEventListener("keydown", (event) => {
     if (event.key === "Enter") runSearch();
   });
-  [els.scope, els.category, els.author, els.sort, els.limit].forEach((el) => {
+  
+  els.scope.addEventListener("change", () => {
+    if (els.scope.value === "ability") {
+      els.abilityTypeField.classList.remove("hidden");
+    } else {
+      els.abilityTypeField.classList.add("hidden");
+      els.abilityType.value = "";
+    }
+  });
+
+  [els.scope, els.abilityType, els.category, els.author, els.sort, els.limit].forEach((el) => {
     el.addEventListener("change", runSearch);
+  });
+
+  els.detail.addEventListener("change", (event) => {
+    if (event.target.name === "statSort") {
+      state.statSortMode = event.target.value;
+      showStatistics(false);
+    }
   });
 }
 
