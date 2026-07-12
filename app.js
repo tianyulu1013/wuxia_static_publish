@@ -6,9 +6,16 @@ const state = {
   abilityType: "",
   statSortMode: "count",
   currentStats: null,
+  documentMeta: null,
+  documentListQuery: "",
+  currentDocument: null,
+  currentDocumentQuery: "",
+  currentDocumentMatchIndex: -1,
 };
 
 const els = {
+  workspace: document.querySelector(".workspace"),
+  siteVersion: document.querySelector("#siteVersion"),
   dbMeta: document.querySelector("#dbMeta"),
   query: document.querySelector("#queryInput"),
   scope: document.querySelector("#scopeSelect"),
@@ -21,6 +28,7 @@ const els = {
   search: document.querySelector("#searchButton"),
   reset: document.querySelector("#resetButton"),
   statistics: document.querySelector("#statisticsButton"),
+  documents: document.querySelector("#documentsButton"),
   stats: document.querySelector("#statsPanel"),
   count: document.querySelector("#resultCount"),
   results: document.querySelector("#resultsList"),
@@ -68,6 +76,11 @@ function highlight(value, fieldScope = "all") {
   return text.replace(new RegExp(escaped, "gi"), (match) => `<mark>${match}</mark>`);
 }
 
+function setDocumentMode(enabled) {
+  document.body.classList.toggle("document-mode", Boolean(enabled));
+  els.workspace.classList.toggle("document-mode", Boolean(enabled));
+}
+
 function compact(value, length = 140) {
   const text = String(value ?? "").replace(/\s+/g, " ").trim();
   return text.length > length ? `${text.slice(0, length)}...` : text;
@@ -98,6 +111,28 @@ function containsAny(values, q) {
     if (value && typeof value === "object") return containsAny(Object.values(value), q);
     return contains(value, q);
   });
+}
+
+function textSnippets(content, q, limit = 3, radius = 70) {
+  const text = String(content || "");
+  const query = String(q || "").trim();
+  if (!query) return [];
+  const snippets = [];
+  const lowerText = text.toLowerCase();
+  const lowerQuery = query.toLowerCase();
+  let start = 0;
+  while (snippets.length < limit) {
+    const index = lowerText.indexOf(lowerQuery, start);
+    if (index === -1) break;
+    const left = Math.max(0, index - radius);
+    const right = Math.min(text.length, index + query.length + radius);
+    let snippet = text.slice(left, right).replace(/\s+/g, " ").trim();
+    if (left > 0) snippet = `...${snippet}`;
+    if (right < text.length) snippet = `${snippet}...`;
+    snippets.push(snippet);
+    start = index + query.length;
+  }
+  return snippets;
 }
 
 function staticMatchesScope(card, q, scope, abilityType = "") {
@@ -231,10 +266,35 @@ function staticStatQuery(params) {
 function getStaticJson(url) {
   const parsed = new URL(url, window.location.href);
   if (parsed.pathname.endsWith("/api/meta")) {
-    return Promise.resolve(STATIC_DATA.meta);
+    return Promise.resolve({ ...(STATIC_DATA.meta || {}), ...(STATIC_DATA.document_meta || {}) });
   }
   if (parsed.pathname.endsWith("/api/statistics")) {
     return Promise.resolve(STATIC_DATA.statistics || {});
+  }
+  if (parsed.pathname.endsWith("/api/documents")) {
+    return Promise.resolve({ ...(STATIC_DATA.document_meta || {}), documents: STATIC_DATA.documents || [] });
+  }
+  if (parsed.pathname.endsWith("/api/document-search")) {
+    const q = (parsed.searchParams.get("q") || "").trim();
+    const docs = STATIC_DATA.documents || [];
+    const results = docs
+      .filter((document) => {
+        if (!q) return true;
+        return containsAny([document.title, document.description, document.group, document.path, document.content], q);
+      })
+      .map((document) => ({
+        ...document,
+        snippets: q ? textSnippets(document.content, q) : [],
+        match_count: q ? String(document.content || "").toLowerCase().split(q.toLowerCase()).length - 1 : 0,
+      }));
+    return Promise.resolve({ results });
+  }
+  const documentMatch = parsed.pathname.match(/\/api\/document\/([^/]+)$/);
+  if (documentMatch) {
+    const id = decodeURIComponent(documentMatch[1]);
+    const document = (STATIC_DATA.documents || []).find((item) => item.id === id);
+    if (!document) return Promise.reject(new Error("未找到资料"));
+    return Promise.resolve(document);
   }
   if (parsed.pathname.endsWith("/api/stat-query")) {
     return Promise.resolve(staticStatQuery({
@@ -277,6 +337,21 @@ function option(label, value = label) {
 
 async function loadMeta() {
   const meta = await getJson("/api/meta");
+  let versionMeta = meta;
+  if (!versionMeta.library_version && !versionMeta.site_version) {
+    try {
+      versionMeta = { ...versionMeta, ...(await getJson("/api/documents")) };
+    } catch (error) {
+      console.warn("Document version metadata unavailable", error);
+    }
+  }
+  const versionParts = [];
+  if (versionMeta.library_version) versionParts.push(`\u8d44\u6599\u5e93 v${versionMeta.library_version}`);
+  if (versionMeta.site_version) versionParts.push(`\u7f51\u9875 v${versionMeta.site_version}`);
+  if (versionMeta.updated) versionParts.push(`\u66f4\u65b0\uff1a${versionMeta.updated}`);
+  if (els.siteVersion) {
+    els.siteVersion.textContent = versionParts.length ? versionParts.join(" \u00b7 ") : "\u672c\u5730\u7248";
+  }
   els.dbMeta.textContent = `${meta.record_count} 张，${meta.source_workbook}`;
   els.stats.innerHTML = meta.by_category
     .map((row) => `<div>${escapeHtml(row.category_label)}：${row.count}</div>`)
@@ -685,6 +760,403 @@ function renderStructureNotes(notes) {
   `;
 }
 
+function documentMetaLine(document) {
+  const parts = [];
+  if (document.kind) parts.push(String(document.kind).toUpperCase());
+  if (document.size) parts.push(`${Math.round(Number(document.size) / 1024)} KB`);
+  return parts.join(" \u00b7 ");
+}
+
+function documentVersionLine(doc) {
+  const parts = [];
+  if (doc.version) parts.push(doc.version);
+  if (doc.updated) parts.push(`\u66f4\u65b0\uff1a${doc.updated}`);
+  return parts.join(" \u00b7 ");
+}
+
+function libraryVersionLine() {
+  const meta = state.documentMeta || {};
+  const parts = [];
+  if (meta.library_version) parts.push(`\u8d44\u6599\u5e93 v${meta.library_version}`);
+  if (meta.site_version) parts.push(`\u7f51\u9875 v${meta.site_version}`);
+  if (meta.updated) parts.push(`\u66f4\u65b0\uff1a${meta.updated}`);
+  return parts.join(" \u00b7 ");
+}
+
+function highlightTerm(value, term) {
+  const text = escapeHtml(value ?? "");
+  const q = String(term || "").trim();
+  if (!q) return text;
+  const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return text.replace(new RegExp(escaped, "gi"), (match) => `<mark>${match}</mark>`);
+}
+
+function countTerm(value, term) {
+  const text = String(value || "").toLowerCase();
+  const q = String(term || "").trim().toLowerCase();
+  if (!q) return 0;
+  return text.split(q).length - 1;
+}
+
+function documentTextForSearch(doc) {
+  const sections = Array.isArray(doc.sections) ? doc.sections : [];
+  if (sections.length) {
+    return sections.map((section) => `${section.title || ""}\n${section.content || ""}`).join("\n\n");
+  }
+  return String(doc.content || "");
+}
+
+function renderDocumentText(content, query = "") {
+  const raw = String(content || "").replace(/\r\n/g, "\n").trim();
+  if (!raw) return "";
+  const blocks = raw.split(/\n{2,}/).filter((block) => block.trim());
+  return `
+    <div class="document-text">
+      ${blocks.map((block) => {
+        const text = block.trim();
+        if (/^#{1,4}\s+/.test(text)) {
+          const level = Math.min((text.match(/^#+/) || [""])[0].length + 3, 6);
+          return `<h${level}>${highlightTerm(text.replace(/^#{1,4}\s+/, ""), query)}</h${level}>`;
+        }
+        if (/^[-*]\s+/.test(text)) {
+          const items = text.split("\n").map((line) => line.replace(/^[-*]\s+/, "").trim()).filter(Boolean);
+          return `<ul>${items.map((item) => `<li>${highlightTerm(item, query)}</li>`).join("")}</ul>`;
+        }
+        return `<p>${highlightTerm(text, query)}</p>`;
+      }).join("")}
+    </div>
+  `;
+}
+
+function isScenarioDocument(doc) {
+  return doc && (doc.id === "scenario-book" || String(doc.title || "").includes("\u5267\u672c"));
+}
+
+function isScenarioCharacterLine(line) {
+  const text = String(line || "").trim();
+  if (!text) return false;
+  if (/[:\uff1a]/.test(text)) return false;
+  if (/^[\uff08(]/.test(text)) return false;
+  if (/^(?:\u5185\u529f|\u62db\u5f0f|\u6b66\u529f|\u6280\u80fd)/.test(text)) return false;
+  if (/^(?:\u9635\u8425|\u5267\u672c|\u80dc\u5229|\u5982|\u82e5|\u5982\u679c|\u7531|\u540c|\u5176\u4f59|\u4e0a\u5c40|\u672c\u6765|\u5bf9\u9635)/.test(text)) return false;
+  if (/^(?:\u751f\u547d|\u6bd2\u7c7b|\u626e\u6f14|\u9644\u52a0|\u6301\u6709)/.test(text)) return false;
+
+  const hasLife = /^[\u4e00-\u9fffA-Za-z0-9\u00b7\u3001\uff08\uff09() ]{2,32}\s+\d+(?:\*\d+)?(?:\s|$)/.test(text);
+  const plainName = /^[\u4e00-\u9fff\u00b7]{2,7}$/.test(text) && !/[\u65e0\u4e0d\u53ef\u5219\u4e0e\u7531\u4e3a\u5982\u540c\u4e0a\u4e0b\u751f\u547d\u653b\u51fb\u4f24\u5bb3]/.test(text);
+  return hasLife || plainName;
+}
+
+function splitScenarioAbility(line, inheritedKind = "") {
+  const text = String(line || "").trim();
+  const typed = text.match(/^(\u5185\u529f|\u62db\u5f0f|\u6b66\u529f|\u6280\u80fd)\s*[:\uff1a]\s*(.*)$/);
+  if (typed) {
+    const rest = typed[2].trim();
+    const named = rest.match(/^([^:\uff1a]{1,38})\s*[:\uff1a]\s*(.*)$/);
+    return {
+      kind: typed[1],
+      name: named ? named[1].trim() : "",
+      text: named ? named[2].trim() : rest,
+      groupHeader: !rest
+    };
+  }
+
+  const star = text.match(/^\*\s*(.*)$/);
+  if (star) {
+    const rest = star[1].trim();
+    const named = rest.match(/^([^:\uff1a]{1,38})\s*[:\uff1a]\s*(.*)$/);
+    return {
+      kind: "*",
+      name: named ? named[1].trim() : "",
+      text: named ? named[2].trim() : rest
+    };
+  }
+
+  const named = text.match(/^([^:\uff1a]{1,38})\s*[:\uff1a]\s*(.*)$/);
+  if (named) {
+    return { kind: inheritedKind || "\u5b57", name: named[1].trim(), text: named[2].trim() };
+  }
+  return null;
+}
+
+function renderScenarioAbility(line, query = "", inheritedKind = "") {
+  const ability = splitScenarioAbility(line, inheritedKind);
+  if (!ability) return "";
+  const kind = ability.kind ? `<span class="scenario-kind">${escapeHtml(ability.kind)}</span>` : "";
+  const name = ability.name ? `<strong class="scenario-ability-name">${highlightTerm(ability.name, query)}</strong>` : "";
+  const body = ability.text ? `<span class="scenario-ability-text">${highlightTerm(ability.text, query)}</span>` : "";
+  const groupClass = ability.groupHeader ? " scenario-ability-group" : "";
+  return `<div class="scenario-ability${groupClass}">${kind}${name}${body}</div>`;
+}
+
+function renderScenarioText(content, query = "") {
+  const raw = String(content || "").replace(/\r\n/g, "\n").trim();
+  if (!raw) return "";
+  const blocks = raw.split(/\n{2,}/).filter((block) => block.trim());
+  let html = '<div class="document-text scenario-text">';
+  let characterOpen = false;
+  let currentKind = "";
+
+  const closeCharacter = () => {
+    if (characterOpen) {
+      html += "</article>";
+      characterOpen = false;
+    }
+  };
+
+  blocks.forEach((block) => {
+    const lines = block.split("\n").map((line) => line.trim()).filter(Boolean);
+    lines.forEach((line) => {
+      if (isScenarioCharacterLine(line)) {
+        closeCharacter();
+        currentKind = "";
+        html += `<article class="scenario-character"><h4>${highlightTerm(line, query)}</h4>`;
+        characterOpen = true;
+        return;
+      }
+
+      const ability = splitScenarioAbility(line, currentKind);
+      if (ability) {
+        if (ability.kind && ability.kind !== "\u5b57") currentKind = ability.kind;
+        if (!characterOpen) html += '<div class="scenario-prose">';
+        html += renderScenarioAbility(line, query, currentKind);
+        if (!characterOpen) html += "</div>";
+        return;
+      }
+
+      const noteClass = /^(?:\u5982\u626e\u6f14|\u82e5\u626e\u6f14|\u5982\u679c|\u80dc\u5229\u6761\u4ef6|\u9635\u8425|\u7531|vs|VS)/.test(line)
+        ? " scenario-note"
+        : "";
+      const paragraph = `<p class="scenario-line${noteClass}">${highlightTerm(line, query)}</p>`;
+      if (characterOpen) html += paragraph;
+      else html += `<div class="scenario-prose">${paragraph}</div>`;
+    });
+  });
+
+  closeCharacter();
+  html += "</div>";
+  return html;
+}
+
+function documentSectionDomId(section, index) {
+  return `document-section-${escapeHtml(section.id || String(index + 1))}`;
+}
+
+function renderDocumentSections(doc, query = "") {
+  const sections = Array.isArray(doc.sections) ? doc.sections.filter((section) => section && (section.title || section.content)) : [];
+  const renderBody = (content) => isScenarioDocument(doc) ? renderScenarioText(content, query) : renderDocumentText(content, query);
+  if (sections.length <= 1) return renderBody(doc.content) || '<div class="text-block">\u6682\u65e0\u53ef\u8bfb\u53d6\u6b63\u6587\u3002</div>';
+  return `
+    <div class="document-reader">
+      <nav class="document-toc" aria-label="\u6587\u6863\u76ee\u5f55">
+        <div class="document-toc-title">\u76ee\u5f55</div>
+        ${sections.map((section, index) => `
+          <button class="document-toc-item level-${Math.min(Number(section.level || 2), 4)}" type="button" data-section-target="${documentSectionDomId(section, index)}" title="${escapeHtml(section.title || `\u7ae0\u8282 ${index + 1}`)}">
+            ${highlightTerm(section.title || `\u7ae0\u8282 ${index + 1}`, query)}
+          </button>
+        `).join("")}
+      </nav>
+      <div class="document-section-list">
+        ${sections.map((section, index) => `
+          <article class="document-chapter" id="${documentSectionDomId(section, index)}">
+            <h3>${highlightTerm(section.title || `\u7ae0\u8282 ${index + 1}`, query)}</h3>
+            ${section.content ? renderBody(section.content) : ""}
+          </article>
+        `).join("")}
+      </div>
+    </div>
+  `;
+}
+
+function bindDocumentDetailEvents() {
+  els.detail.querySelector("#documentBackButton")?.addEventListener("click", () => showDocuments(state.documentListQuery || ""));
+  const searchInput = els.detail.querySelector("#documentCurrentSearchInput");
+  const runCurrentSearch = () => renderDocumentDetail(state.currentDocument, searchInput.value.trim());
+  els.detail.querySelector("#documentCurrentSearchButton")?.addEventListener("click", runCurrentSearch);
+  els.detail.querySelector("#documentCurrentClearButton")?.addEventListener("click", () => renderDocumentDetail(state.currentDocument, ""));
+  els.detail.querySelector("#documentPrevMatchButton")?.addEventListener("click", () => jumpDocumentMatch(-1));
+  els.detail.querySelector("#documentNextMatchButton")?.addEventListener("click", () => jumpDocumentMatch(1));
+  searchInput?.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") runCurrentSearch();
+  });
+  els.detail.querySelectorAll("[data-section-target]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const target = document.getElementById(button.dataset.sectionTarget);
+      if (target) target.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  });
+}
+
+function documentMatches() {
+  return Array.from(els.detail.querySelectorAll(".document-section-list mark"));
+}
+
+function updateDocumentMatchStatus() {
+  const matches = documentMatches();
+  if (!matches.length) {
+    state.currentDocumentMatchIndex = -1;
+  } else if (state.currentDocumentMatchIndex < 0 || state.currentDocumentMatchIndex >= matches.length) {
+    state.currentDocumentMatchIndex = 0;
+  }
+  matches.forEach((mark, index) => {
+    mark.classList.toggle("active-match", index === state.currentDocumentMatchIndex);
+  });
+  const status = els.detail.querySelector("#documentMatchStatus");
+  if (status) {
+    status.textContent = matches.length ? `${state.currentDocumentMatchIndex + 1} / ${matches.length}` : "";
+  }
+  const prev = els.detail.querySelector("#documentPrevMatchButton");
+  const next = els.detail.querySelector("#documentNextMatchButton");
+  if (prev) prev.disabled = matches.length === 0;
+  if (next) next.disabled = matches.length === 0;
+}
+
+function jumpDocumentMatch(delta = 0) {
+  const matches = documentMatches();
+  if (!matches.length) {
+    updateDocumentMatchStatus();
+    return;
+  }
+  state.currentDocumentMatchIndex = (state.currentDocumentMatchIndex + delta + matches.length) % matches.length;
+  updateDocumentMatchStatus();
+  matches[state.currentDocumentMatchIndex].scrollIntoView({ behavior: "smooth", block: "center" });
+}
+
+function renderDocumentDetail(doc, query = "") {
+  if (!doc) return;
+  state.currentDocument = doc;
+  state.currentDocumentQuery = query;
+  state.currentDocumentMatchIndex = query ? 0 : -1;
+  const matchCount = countTerm(documentTextForSearch(doc), query);
+  els.empty.classList.add("hidden");
+  els.detail.classList.remove("hidden");
+  els.detail.innerHTML = `
+    <div class="document-toolbar">
+      <button id="documentBackButton" type="button">\u8fd4\u56de\u8d44\u6599\u5e93</button>
+      <span>${escapeHtml(libraryVersionLine())}</span>
+    </div>
+    <div class="document-titlebar">
+      <div>
+        <h2>${highlightTerm(doc.title, query)}</h2>
+        <p>${escapeHtml(documentVersionLine(doc))}</p>
+      </div>
+      <span class="badge">${escapeHtml(doc.group || "\u8d44\u6599")}</span>
+    </div>
+    <div class="document-current-search">
+      <input id="documentCurrentSearchInput" type="search" value="${escapeHtml(query)}" placeholder="\u5728\u5f53\u524d\u6587\u6863\u4e2d\u641c\u7d22" autocomplete="off" />
+      <button id="documentCurrentSearchButton" type="button">\u641c\u672c\u6587</button>
+      <button id="documentCurrentClearButton" type="button">\u6e05\u9664</button>
+      <button id="documentPrevMatchButton" type="button" ${query && matchCount ? "" : "disabled"}>\u4e0a\u4e00\u5904</button>
+      <button id="documentNextMatchButton" type="button" ${query && matchCount ? "" : "disabled"}>\u4e0b\u4e00\u5904</button>
+      <span id="documentMatchStatus">${query && matchCount ? `1 / ${matchCount}` : ""}</span>
+    </div>
+    <div class="document-meta-grid">
+      ${kv("\u7c7b\u578b", doc.kind)}
+      ${kv("\u6587\u4ef6", doc.source_path || doc.path)}
+      ${kv("\u5927\u5c0f", doc.size ? `${Math.round(Number(doc.size) / 1024)} KB` : "")}
+    </div>
+    ${doc.description ? `<div class="document-intro">${highlightTerm(doc.description, query)}</div>` : ""}
+    <div class="document-section">
+      ${renderDocumentSections(doc, query)}
+    </div>
+  `;
+  bindDocumentDetailEvents();
+  if (query) window.setTimeout(() => jumpDocumentMatch(0), 0);
+}
+
+async function loadDocument(id) {
+  setDocumentMode(true);
+  els.detail.innerHTML = `<div class="empty-state">\u8bfb\u53d6\u6587\u6863\u4e2d...</div>`;
+  const doc = await getJson(`/api/document/${encodeURIComponent(id)}`);
+  state.activeId = `document:${id}`;
+  renderDocumentDetail(doc, "");
+}
+
+function renderDocumentHome(documents, searchText = "") {
+  const grouped = documents.reduce((acc, doc) => {
+    const group = doc.group || "\u8d44\u6599";
+    if (!acc[group]) acc[group] = [];
+    acc[group].push(doc);
+    return acc;
+  }, {});
+
+  els.detail.innerHTML = `
+    <div class="document-home">
+      <div class="document-titlebar">
+        <div>
+          <h2>\u8d44\u6599\u5e93</h2>
+          <p>${escapeHtml(libraryVersionLine())}</p>
+        </div>
+        <span class="badge">\u89c4\u5219/\u5267\u672c</span>
+      </div>
+      <div class="document-search">
+        <input id="documentSearchInput" type="search" value="${escapeHtml(searchText)}" placeholder="\u641c\u7d22\u89c4\u5219\u4e66\u3001\u5267\u672c\u6b63\u6587" autocomplete="off" />
+        <button id="documentSearchButton" type="button">\u641c\u7d22</button>
+        <button id="documentClearButton" type="button">\u5168\u90e8\u8d44\u6599</button>
+      </div>
+      ${searchText ? `<div class="document-search-summary">\u641c\u7d22\u201c${highlightTerm(searchText, searchText)}\u201d\uff0c\u627e\u5230 ${documents.length} \u9879\u8d44\u6599\u3002</div>` : ""}
+      <div class="resource-grid">
+        ${Object.entries(grouped).map(([group, items]) => `
+          <section class="resource-group">
+            <h3>${escapeHtml(group)}</h3>
+            ${items.map((doc) => `
+              <button class="resource-card" type="button" data-document-id="${escapeHtml(doc.id)}">
+                <strong>${highlightTerm(doc.title, searchText)}</strong>
+                ${documentVersionLine(doc) ? `<small>${escapeHtml(documentVersionLine(doc))}</small>` : ""}
+                <span>${highlightTerm((doc.snippets && doc.snippets.length ? doc.snippets.join(" ") : doc.description || doc.path || ""), searchText)}</span>
+                <em>${escapeHtml(documentMetaLine(doc))}</em>
+              </button>
+            `).join("")}
+          </section>
+        `).join("")}
+      </div>
+    </div>
+  `;
+  els.detail.querySelectorAll("[data-document-id]").forEach((button) => {
+    button.addEventListener("click", () => loadDocument(button.dataset.documentId));
+  });
+  const searchInput = els.detail.querySelector("#documentSearchInput");
+  const runDocumentSearch = () => showDocuments(searchInput.value.trim());
+  els.detail.querySelector("#documentSearchButton").addEventListener("click", runDocumentSearch);
+  els.detail.querySelector("#documentClearButton").addEventListener("click", () => showDocuments(""));
+  searchInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") runDocumentSearch();
+  });
+}
+
+async function showDocuments(searchText = "") {
+  setDocumentMode(true);
+  els.empty.classList.add("hidden");
+  els.detail.classList.remove("hidden");
+  els.count.textContent = "";
+  els.results.innerHTML = "";
+  els.detail.innerHTML = `<div class="empty-state">\u8bfb\u53d6\u8d44\u6599\u4e2d...</div>`;
+  try {
+    searchText = typeof searchText === "string" ? searchText : "";
+    state.documentListQuery = searchText;
+    state.query = searchText;
+    state.currentDocument = null;
+    state.currentDocumentQuery = "";
+    const data = searchText
+      ? await getJson(`/api/document-search?${new URLSearchParams({ q: searchText }).toString()}`)
+      : await getJson("/api/documents");
+    if (!searchText) {
+      state.documentMeta = {
+        library_version: data.library_version,
+        site_version: data.site_version,
+        updated: data.updated,
+      };
+    }
+    const documents = Array.isArray(data.results) ? data.results : (Array.isArray(data.documents) ? data.documents : []);
+    els.count.textContent = `${documents.length} \u9879`;
+    renderDocumentHome(documents, searchText);
+  } catch (error) {
+    console.error(error);
+    els.count.textContent = "\u8d44\u6599\u8bfb\u53d6\u5931\u8d25";
+    const message = escapeHtml(error.message || String(error));
+    els.detail.innerHTML = `<div class="empty-state">\u8d44\u6599\u8bfb\u53d6\u5931\u8d25\uff1a${message}</div>`;
+  }
+}
+
 const SOURCE_WORK_TO_AUTHOR = {
   // 古龙
   "圆月弯刀": "古龙", "英雄无泪": "古龙", "萧十一郎": "古龙", "武林外史": "古龙", "天涯明月刀": "古龙",
@@ -794,6 +1266,7 @@ function filterSummary(filters) {
 }
 
 async function showStatistics(forceFetch = false) {
+  setDocumentMode(false);
   const filters = currentFilterParams();
   if (forceFetch || !state.currentStats) {
     const stats = await getJson(`/api/stat-query?${new URLSearchParams(filters).toString()}`);
@@ -928,6 +1401,7 @@ async function loadCard(id) {
 }
 
 async function runSearch() {
+  setDocumentMode(false);
   state.query = els.query.value;
   state.scope = els.scope.value;
   state.abilityType = els.scope.value === "ability" ? els.abilityType.value : "";
@@ -965,6 +1439,7 @@ function bindEvents() {
     runSearch();
   });
   els.statistics.addEventListener("click", () => showStatistics(true));
+  els.documents.addEventListener("click", () => showDocuments(""));
   els.query.addEventListener("keydown", (event) => {
     if (event.key === "Enter") runSearch();
   });
