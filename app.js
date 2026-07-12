@@ -688,7 +688,11 @@ function renderReviewField(label, value) {
     `;
   }
   if (typeof value === "object") {
-    const rows = Object.entries(value);
+    const rows = Object.entries(value).filter(([, item]) => {
+      if (item == null || item === "") return false;
+      if (Array.isArray(item)) return item.length > 0;
+      return true;
+    });
     if (rows.length === 0) return "";
     return `
       <div class="review-field">
@@ -723,6 +727,80 @@ function renderReviewLayer(review) {
     <div class="section review-section">
       <h3>评语/裁定</h3>
       ${content}
+    </div>
+  `;
+}
+
+function reviewStatusLabel(status) {
+  if (status === "author_confirmed") return "作者已确认";
+  if (status === "author_reviewed") return "作者已校准";
+  if (status === "ai_draft") return "低置信草稿";
+  return status || "未标状态";
+}
+
+function renderUnderstandingLayer(note) {
+  if (!note || Object.keys(note).length === 0) return "";
+  const status = note.status || "ai_draft";
+  const hasAuthorRulings = Array.isArray(note.author_rulings) && note.author_rulings.length > 0;
+  const summary = [
+    renderReviewField("核心定位", note.core_positioning),
+    renderReviewField("实战价值", note.practical_value),
+    renderReviewField("泛用性", note.generality),
+  ].filter(Boolean).join("");
+  const extra = [
+    renderReviewField("作者裁定", hasAuthorRulings ? note.author_rulings : ["暂无作者校准。"]),
+    renderReviewField("关键机制", note.key_mechanics),
+    renderReviewField("玩法提示", note.strategy_notes),
+    renderReviewField("规则风险", note.rules_risks),
+    renderReviewField("AI易误判", note.ai_misread_risks),
+    renderReviewField("待校准问题", note.needs_author_review),
+    renderReviewField("艺术形象参考", note.flavor_alignment),
+    renderReviewField("资料/来源说明", note.source_research),
+  ].filter(Boolean).join("");
+  const content = `${summary}${extra ? `<details class="review-details"><summary>更多评审信息</summary>${extra}</details>` : ""}`;
+  if (!content) return "";
+  return `
+    <div class="section understanding-section">
+      <div class="review-heading">
+        <h3>评审与理解</h3>
+        <span class="review-status ${escapeHtml(status)}">${escapeHtml(reviewStatusLabel(status))}</span>
+      </div>
+      <div class="review-source-note">这是评语层内容，不是牌面源数据。${hasAuthorRulings ? "有作者校准内容。" : "暂无作者校准。"}</div>
+      ${content}
+    </div>
+  `;
+}
+
+function maintenanceKindLabel(kind) {
+  if (kind === "card_face_todo") return "卡面排版";
+  if (kind === "card_text_audit") return "文案审计";
+  return kind || "维护待办";
+}
+
+function renderMaintenanceTodos(items) {
+  if (!Array.isArray(items) || items.length === 0) return "";
+  return `
+    <div class="section maintenance-section">
+      <div class="review-heading">
+        <h3>整理/修订待办</h3>
+        <span class="review-status todo-status">${items.length} 项</span>
+      </div>
+      <div class="review-source-note">来自 reports 的维护层提示，不是牌面源数据，也不是强度评价。</div>
+      <details class="review-details">
+        <summary>查看待办项</summary>
+        <div class="maintenance-list">
+          ${items.map((item) => `
+            <div class="maintenance-item">
+              <div class="maintenance-item-head">
+                <span>${escapeHtml(maintenanceKindLabel(item.kind))}</span>
+                <small>${escapeHtml(item.section || item.source_report || "")}</small>
+              </div>
+              <div class="maintenance-summary">${highlight(item.summary || item.subject || "待整理")}</div>
+              ${renderListItems(item.details)}
+            </div>
+          `).join("")}
+        </div>
+      </details>
     </div>
   `;
 }
@@ -1335,12 +1413,18 @@ function renderChangeCandidates(candidates) {
           <article class="candidate-card">
             <div class="candidate-header">
               <strong>${highlight(candidate.id || "未命名候选")}</strong>
-              <span>${escapeHtml(candidate.status || "draft")}</span>
+              <span>${escapeHtml([candidate.status || "draft", candidate.ai_position].filter(Boolean).join(" · "))}</span>
             </div>
+            ${renderReviewField("类型", candidate.candidate_type)}
             ${renderReviewField("修改意图", candidate.request)}
+            ${renderReviewField("设计目标", candidate.design_goal)}
             ${renderReviewField("理由", candidate.rationale)}
+            ${renderReviewField("当前摘要", candidate.current_snapshot)}
+            ${renderReviewField("评审", candidate.review)}
             ${renderReviewField("候选完整文本", candidate.proposed_full_text)}
+            ${renderReviewField("局部修改", candidate.proposed_patch)}
             ${renderReviewField("更新说明", candidate.patch_notes)}
+            ${renderReviewField("待作者裁定", candidate.author_decision_needed)}
             ${renderReviewField("待办", candidate.source_tasks)}
           </article>
         `).join("")}
@@ -1396,6 +1480,8 @@ async function loadCard(id) {
       <div class="text-block">${highlight(card.relationships || "—", "relationships")}</div>
     </div>
     ${renderReviewLayer(card.review)}
+    ${renderUnderstandingLayer(card.understanding_note)}
+    ${renderMaintenanceTodos(card.maintenance_todos)}
     ${renderChangeCandidates(card.change_candidates)}
   `;
 }
