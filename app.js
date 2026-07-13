@@ -11,6 +11,7 @@ const state = {
   currentDocument: null,
   currentDocumentQuery: "",
   currentDocumentMatchIndex: -1,
+  evaluationMethodology: null,
 };
 
 const els = {
@@ -337,6 +338,7 @@ function option(label, value = label) {
 
 async function loadMeta() {
   const meta = await getJson("/api/meta");
+  state.evaluationMethodology = meta.evaluation_methodology || null;
   let versionMeta = meta;
   if (!versionMeta.library_version && !versionMeta.site_version) {
     try {
@@ -733,9 +735,60 @@ function renderReviewLayer(review) {
 
 function reviewStatusLabel(status) {
   if (status === "author_confirmed") return "作者已确认";
-  if (status === "author_reviewed") return "作者已校准";
-  if (status === "ai_draft") return "低置信草稿";
+  if (status === "author_reviewed") return "作者评估";
+  if (status === "ai_draft") return "ai草稿";
+  if (status === "ai_unreviewed") return "ai评估";
+  if (status === "unreviewed") return "未评估";
   return status || "未标状态";
+}
+
+function renderEvaluationMethodology(methodology) {
+  if (!methodology || typeof methodology !== "object") return "";
+  const ranges = Array.isArray(methodology.score_ranges) ? methodology.score_ranges : [];
+  return `
+    <details class="review-details methodology-details">
+      <summary>查看评价标准与分数区间</summary>
+      ${renderReviewField("不同类别评价标准", methodology.category_standards)}
+      ${renderReviewField("分数区间", ranges.map((item) => `${item.range}：${item.meaning}`))}
+    </details>
+  `;
+}
+
+function renderEvaluationLayer(evaluation) {
+  const data = evaluation && typeof evaluation === "object"
+    ? evaluation
+    : { status: "unreviewed", status_label: "未评估", entries: [] };
+  const status = data.status || "unreviewed";
+  const entries = Array.isArray(data.entries) ? data.entries : [];
+  const entryHtml = entries.map((entry) => `
+    <article class="evaluation-entry">
+      <div class="evaluation-score-row">
+        <strong>${escapeHtml(entry.display_title || entry.card_title || "评审条目")}</strong>
+        <span>强度 ${entry.strength_score != null ? escapeHtml(entry.strength_score) : "未评估"}</span>
+        <span>泛用性 ${entry.generality_score != null ? escapeHtml(entry.generality_score) : "未评估"}</span>
+      </div>
+      <div class="review-source-note">
+        Batch ${escapeHtml(entry.batch)} · ${escapeHtml(entry.category_label || "未识别类别")} · ${escapeHtml(entry.status_label || "AI评估·未校准")}
+      </div>
+      <details class="review-details evaluation-full-text">
+        <summary>查看完整评审正文（未压缩）</summary>
+        <div class="text-block">${highlight(entry.full_text || "")}</div>
+        <div class="review-source-note">来源：${escapeHtml(entry.source_path || "二级评价库")}</div>
+      </details>
+    </article>
+  `).join("");
+  const empty = entries.length ? "" : `<div class="evaluation-empty">这张卡尚无评价信息。</div>`;
+  return `
+    <div class="section evaluation-section">
+      <div class="review-heading">
+        <h3>评审与理解</h3>
+        <span class="review-status ${escapeHtml(status)}">${escapeHtml(data.status_label || reviewStatusLabel(status))}</span>
+      </div>
+      <div class="review-source-note">二级评价数据，不是牌面源数据。AI评分未经作者校准时仅供参考。</div>
+      ${entryHtml || empty}
+      ${renderEvaluationMethodology(state.evaluationMethodology)}
+    </div>
+  `;
 }
 
 function renderUnderstandingLayer(note) {
@@ -1481,6 +1534,7 @@ async function loadCard(id) {
     </div>
     ${renderReviewLayer(card.review)}
     ${renderUnderstandingLayer(card.understanding_note)}
+    ${renderEvaluationLayer(card.evaluation)}
     ${renderMaintenanceTodos(card.maintenance_todos)}
     ${renderChangeCandidates(card.change_candidates)}
   `;

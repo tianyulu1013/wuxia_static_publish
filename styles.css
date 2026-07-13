@@ -700,6 +700,53 @@ button:hover {
   color: #8b5d10;
 }
 
+.review-status.ai_unreviewed {
+  color: #a35b00;
+}
+
+.review-status.unreviewed {
+  color: #6f7782;
+}
+
+.evaluation-section {
+  border: 1px solid #d7dde5;
+  border-left: 4px solid #4f6f91;
+  background: #f8fbff;
+  padding: 12px;
+  box-shadow: var(--shadow);
+}
+
+.evaluation-entry {
+  border-top: 1px dashed #c7d2df;
+  padding-top: 10px;
+  margin-top: 10px;
+}
+
+.evaluation-score-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  align-items: baseline;
+}
+
+.evaluation-score-row span {
+  font-weight: 700;
+  color: #315779;
+}
+
+.evaluation-empty {
+  color: var(--muted);
+  padding: 8px 0;
+}
+
+.evaluation-full-text .text-block {
+  max-height: 720px;
+  overflow: auto;
+  border: 1px solid #d7dde5;
+  background: #fff;
+  padding: 10px;
+}
+
 .review-source-note {
   color: var(--muted);
   font-size: 12px;
