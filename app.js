@@ -1264,15 +1264,6 @@ function bindDocumentDetailEvents() {
     });
   });
 
-  els.detail.querySelector("#mobileSearchToggle")?.addEventListener("click", () => {
-    const searchBar = els.detail.querySelector(".document-current-search");
-    if (searchBar) {
-      const isActive = searchBar.classList.toggle("active");
-      if (isActive) {
-        els.detail.querySelector("#documentCurrentSearchInput")?.focus();
-      }
-    }
-  });
 }
 
 function documentMatches() {
@@ -1328,10 +1319,7 @@ function renderDocumentDetail(doc, query = "") {
         <h2>${highlightTerm(doc.title, query)}</h2>
         <p>${escapeHtml(documentVersionLine(doc))}</p>
       </div>
-      <div class="titlebar-actions">
-        <span class="badge">${escapeHtml(doc.group || "\u8d44\u6599")}</span>
-        <button id="mobileSearchToggle" class="mobile-search-toggle" type="button" aria-label="\u641c\u7d22\u672c\u6587">\ud83d\udd0d \u641c\u672c\u6587</button>
-      </div>
+      <span class="badge">${escapeHtml(doc.group || "\u8d44\u6599")}</span>
     </div>
     <div class="document-current-search">
       <input id="documentCurrentSearchInput" type="search" value="${escapeHtml(query)}" placeholder="\u5728\u5f53\u524d\u6587\u6863\u4e2d\u641c\u7d22" autocomplete="off" />
