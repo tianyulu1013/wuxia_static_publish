@@ -44,7 +44,6 @@ const els = {
   cardCategory: document.querySelector("#cardCategory"),
   cardAuthor: document.querySelector("#cardAuthor"),
   cardSort: document.querySelector("#cardSort"),
-  cardLimit: document.querySelector("#cardLimit"),
   cardSearchBtn: document.querySelector("#cardSearchBtn"),
   cardResetBtn: document.querySelector("#cardResetBtn"),
 
@@ -262,11 +261,30 @@ function compareStaticCards(a, b, sort, q) {
     const byRank = rank(a) - rank(b);
     if (byRank) return byRank;
   }
+
+  const categoryOrder = [
+    "combat_characters",
+    "attached_characters",
+    "items",
+    "titles",
+    "scenes",
+    "deprecated"
+  ];
+  const getWeight = (cat) => {
+    const idx = categoryOrder.indexOf(cat);
+    return idx === -1 ? 999 : idx;
+  };
+
+  const weightA = getWeight(a.category);
+  const weightB = getWeight(b.category);
+
   if (sort === "title") return String(a.title || "").localeCompare(String(b.title || ""), "zh-Hans");
   if (sort === "category") {
-    const byCategory = String(a.category || "").localeCompare(String(b.category || ""));
-    if (byCategory) return byCategory;
+    if (weightA !== weightB) return weightA - weightB;
   }
+
+  if (weightA !== weightB) return weightA - weightB;
+
   return String(a.source_sheet || "").localeCompare(String(b.source_sheet || ""), "zh-Hans")
     || Number(a.source_row || 0) - Number(b.source_row || 0);
 }
@@ -364,7 +382,7 @@ function getStaticJson(url) {
     const scope = parsed.searchParams.get("scope") || "all";
     const category = parsed.searchParams.get("category") || "";
     const author = parsed.searchParams.get("author") || "";
-    const limit = Math.min(Math.max(Number(parsed.searchParams.get("limit") || 500), 1), 500);
+    const limit = Math.min(Math.max(Number(parsed.searchParams.get("limit") || 1000), 1), 1000);
     const valuesForScope = (item) => {
       const summary = item.summary || {};
       const survival = summary.survival || {};
@@ -396,7 +414,7 @@ function getStaticJson(url) {
     const category = parsed.searchParams.get("category") || "";
     const author = parsed.searchParams.get("author") || "";
     const sort = parsed.searchParams.get("sort") || "sheet";
-    const limit = Math.min(Math.max(Number(parsed.searchParams.get("limit") || 60), 1), 500);
+    const limit = Math.min(Math.max(Number(parsed.searchParams.get("limit") || 1000), 1), 1000);
     const isExclusive = parsed.searchParams.get("is_exclusive") === "1";
     const isIdentity = parsed.searchParams.get("is_identity") === "1";
     const cards = staticFilteredCards({ q, scope, abilityType, category, author, isExclusive, isIdentity })
@@ -439,23 +457,80 @@ async function loadMeta() {
   if (els.siteVersion) {
     els.siteVersion.textContent = versionParts.length ? versionParts.join(" \u00b7 ") : "\u672c\u5730\u7248";
   }
-  els.dbMeta.textContent = `${meta.record_count} \u5f20\uff0c${meta.source_workbook}`;
-  els.stats.innerHTML = meta.by_category
-    .map((row) => `<div>${escapeHtml(row.category_label)}\uff1a${row.count}</div>`)
+  const activeCount = meta.by_category
+    .filter((row) => row.category !== "deprecated" && row.category !== "scrapped")
+    .reduce((sum, row) => sum + row.count, 0);
+
+  els.dbMeta.textContent = `共 ${activeCount} 张卡牌`;
+
+  const statsOrder = [
+    "combat_characters",
+    "attached_characters",
+    "items",
+    "titles",
+    "scenes"
+  ];
+  const sortedStats = meta.by_category
+    .filter((row) => statsOrder.includes(row.category))
+    .sort((a, b) => {
+      const idxA = statsOrder.indexOf(a.category);
+      const idxB = statsOrder.indexOf(b.category);
+      return idxA - idxB;
+    });
+
+  els.stats.innerHTML = sortedStats
+    .map((row) => `<div>${escapeHtml(row.category_label)}：${row.count}</div>`)
     .join("");
 
   // Populate category + author for all 2 panels (card search, eval)
   const categorySelects = [els.cardCategory, els.evalCategory];
   const authorSelects = [els.cardAuthor, els.evalAuthor];
+  const categoryOrder = [
+    "combat_characters",
+    "attached_characters",
+    "items",
+    "titles",
+    "scenes",
+    "deprecated"
+  ];
+  const sortedCategories = [...meta.categories].sort((a, b) => {
+    const idxA = categoryOrder.indexOf(a.value);
+    const idxB = categoryOrder.indexOf(b.value);
+    const orderA = idxA === -1 ? 999 : idxA;
+    const orderB = idxB === -1 ? 999 : idxB;
+    return orderA - orderB;
+  });
+
   categorySelects.forEach((sel) => {
     if (!sel) return;
     sel.append(option("\u5168\u90e8", ""));
-    meta.categories.forEach((item) => sel.append(option(item.label, item.value)));
+    sortedCategories.forEach((item) => sel.append(option(item.label, item.value)));
   });
+  const authorOrder = [
+    "金庸",
+    "古龙",
+    "梁羽生",
+    "温瑞安",
+    "黄易",
+    "李凉",
+    "鲁迅",
+    "老舍"
+  ];
+  const sortedAuthors = [...meta.authors].sort((a, b) => {
+    const idxA = authorOrder.indexOf(a);
+    const idxB = authorOrder.indexOf(b);
+    let orderA = idxA === -1 ? 900 : idxA;
+    let orderB = idxB === -1 ? 900 : idxB;
+    if (a === "其他" || a === "—" || !a) orderA = 999;
+    if (b === "其他" || b === "—" || !b) orderB = 999;
+    if (orderA !== orderB) return orderA - orderB;
+    return String(a || "").localeCompare(String(b || ""), "zh-Hans");
+  });
+
   authorSelects.forEach((sel) => {
     if (!sel) return;
     sel.append(option("\u5168\u90e8", ""));
-    meta.authors.forEach((name) => sel.append(option(name, name)));
+    sortedAuthors.forEach((name) => sel.append(option(name, name)));
   });
 }
 
@@ -1889,6 +1964,10 @@ function setTab(tabName) {
   Object.entries(tabs).forEach(([name, btn]) => btn?.classList.toggle("active", name === tabName));
   Object.entries(panels).forEach(([name, panel]) => panel?.classList.toggle("hidden", name !== tabName));
 
+  if (els.stats) {
+    els.stats.style.display = tabName === "docs" ? "none" : "";
+  }
+
   if (tabName === "docs") {
     if (els.mTabList) els.mTabList.style.display = "none";
     if (els.mTabDetail) els.mTabDetail.style.display = "";
@@ -1917,7 +1996,7 @@ async function runCardSearch(isUserTriggered = false) {
     category: els.cardCategory.value,
     author: els.cardAuthor.value,
     sort: els.cardSort.value,
-    limit: els.cardLimit.value,
+    limit: 1000,
     is_exclusive: els.cardExclusive.checked ? "1" : "0",
     is_identity: els.cardIdentity.checked ? "1" : "0",
   });
@@ -1988,7 +2067,7 @@ function bindEvents() {
       els.cardAbilityType.value = "";
     }
   });
-  [els.cardScope, els.cardAbilityType, els.cardCategory, els.cardAuthor, els.cardSort, els.cardLimit]
+  [els.cardScope, els.cardAbilityType, els.cardCategory, els.cardAuthor, els.cardSort]
     .filter(Boolean)
     .forEach((el) => el.addEventListener("change", () => runCardSearch(false)));
   els.cardExclusive?.addEventListener("change", () => runCardSearch(false));
@@ -2001,7 +2080,6 @@ function bindEvents() {
     els.cardCategory.value = "";
     els.cardAuthor.value = "";
     els.cardSort.value = "sheet";
-    els.cardLimit.value = "60";
     els.cardExclusive.checked = false;
     els.cardIdentity.checked = false;
     runCardSearch(false);

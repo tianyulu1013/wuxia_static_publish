@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>五行卡牌查询</title>
-    <link rel="stylesheet" href="styles.css?v=1783962721" />
+    <link rel="stylesheet" href="styles.css?v=1783965621" />
   </head>
   <body>
     <div class="app-shell">
@@ -28,6 +28,11 @@
         <!-- ① 卡牌检索面板 -->
         <div id="cardSearchPanel" class="tab-panel">
           <label class="field">
+            <span>类别</span>
+            <select id="cardCategory"></select>
+          </label>
+
+          <label class="field">
             <span>关键词</span>
             <input id="cardQ" type="search" placeholder="卡名、机制、出处、作者" autocomplete="off" />
           </label>
@@ -35,13 +40,13 @@
           <label class="field">
             <span>范围</span>
             <select id="cardScope">
-              <option value="all" selected>全文</option>
+              <option value="all" selected>全部</option>
               <option value="title">名称</option>
-              <option value="identity">身份/属性</option>
+              <option value="identity">身份</option>
+              <option value="ability">特技文本</option>
+              <option value="relationships">关系</option>
               <option value="weapons">兵器</option>
               <option value="source_work">出处</option>
-              <option value="relationships">关系</option>
-              <option value="ability">特技文本</option>
             </select>
           </label>
 
@@ -73,31 +78,14 @@
 
           <div class="field-grid">
             <label class="field">
-              <span>类别</span>
-              <select id="cardCategory"></select>
-            </label>
-            <label class="field">
               <span>作者</span>
               <select id="cardAuthor"></select>
             </label>
-          </div>
-
-          <div class="field-grid">
             <label class="field">
               <span>排序</span>
               <select id="cardSort">
                 <option value="sheet">牌表顺序</option>
                 <option value="title">名称</option>
-                <option value="category">类别</option>
-              </select>
-            </label>
-            <label class="field">
-              <span>数量</span>
-              <select id="cardLimit">
-                <option>30</option>
-                <option selected>60</option>
-                <option>120</option>
-                <option>240</option>
               </select>
             </label>
           </div>
@@ -182,8 +170,8 @@
       <button id="mTabDetail" class="m-tab-btn" type="button">📊 详情</button>
     </div>
 
-    <script src="static-data.js?v=1783962721"></script>
-    <script src="app.js?v=1783962721"></script>
+    <script src="static-data.js?v=1783965621"></script>
+    <script src="app.js?v=1783965621"></script>
   </body>
 </html>
 
