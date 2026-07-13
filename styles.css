@@ -142,6 +142,29 @@ select:focus {
   gap: 10px;
 }
 
+.search-mode-switcher {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  border: 1px solid var(--line);
+  background: #f5f7f9;
+  padding: 4px;
+}
+
+.mode-button {
+  min-height: 34px;
+  border-color: transparent;
+  background: transparent;
+  font-weight: 700;
+}
+
+.mode-button.active {
+  border-color: #7693ad;
+  background: #fff;
+  color: #294f70;
+  box-shadow: 0 1px 4px rgba(44, 64, 82, 0.12);
+}
+
 button {
   border: 1px solid var(--line-strong);
   background: #fff;
@@ -734,6 +757,104 @@ button:hover {
   color: #315779;
 }
 
+.evaluation-summary {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+  border-top: 1px solid #d9e2eb;
+  padding-top: 12px;
+}
+
+.evaluation-survival-grid,
+.evaluation-procon-grid,
+.evaluation-risk-grid,
+.evaluation-dimension-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.evaluation-summary-card {
+  border: 1px solid #d7e0e9;
+  background: #fff;
+  padding: 10px;
+}
+
+.evaluation-summary-label {
+  margin-bottom: 6px;
+  color: #315779;
+  font-weight: 800;
+}
+
+.evaluation-result-scores {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  margin-top: 6px;
+  color: #315779;
+  font-size: 12px;
+}
+
+.evaluation-result-scores span {
+  color: #8a5a12;
+}
+
+.evaluation-layer-warning {
+  border: 1px solid #e0d5ba;
+  background: #fffaf0;
+  padding: 9px 10px;
+}
+
+.evaluation-stat-card {
+  margin: 0;
+}
+
+.evaluation-stat-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.evaluation-stat-heading h3 {
+  margin: 0 0 8px;
+}
+
+.evaluation-stat-heading span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.compact-stats-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.score-distribution {
+  display: grid;
+  gap: 5px;
+  margin-top: 10px;
+}
+
+.score-bin {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr) 26px;
+  gap: 7px;
+  align-items: center;
+  font-size: 12px;
+}
+
+.score-bar {
+  height: 8px;
+  background: #e8edf2;
+  overflow: hidden;
+}
+
+.score-bar i {
+  display: block;
+  height: 100%;
+  background: #557da1;
+}
+
 .evaluation-empty {
   color: var(--muted);
   padding: 8px 0;
@@ -745,6 +866,15 @@ button:hover {
   border: 1px solid #d7dde5;
   background: #fff;
   padding: 10px;
+}
+
+@media (max-width: 780px) {
+  .evaluation-survival-grid,
+  .evaluation-procon-grid,
+  .evaluation-risk-grid,
+  .evaluation-dimension-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .review-source-note {

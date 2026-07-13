@@ -12,6 +12,7 @@ const state = {
   currentDocumentQuery: "",
   currentDocumentMatchIndex: -1,
   evaluationMethodology: null,
+  searchMode: "cards",
 };
 
 const els = {
@@ -27,8 +28,11 @@ const els = {
   sort: document.querySelector("#sortSelect"),
   limit: document.querySelector("#limitSelect"),
   search: document.querySelector("#searchButton"),
+  cardSearchMode: document.querySelector("#cardSearchModeButton"),
+  evaluationSearchMode: document.querySelector("#evaluationSearchModeButton"),
   reset: document.querySelector("#resetButton"),
   statistics: document.querySelector("#statisticsButton"),
+  evaluationStatistics: document.querySelector("#evaluationStatisticsButton"),
   documents: document.querySelector("#documentsButton"),
   stats: document.querySelector("#statsPanel"),
   count: document.querySelector("#resultCount"),
@@ -38,6 +42,16 @@ const els = {
 };
 
 const STATIC_DATA = window.CARD_BROWSER_STATIC_DATA || null;
+
+const CARD_SCOPE_OPTIONS = [
+  ["全文", "all"], ["名称", "title"], ["身份/属性", "identity"], ["兵器", "weapons"],
+  ["出处", "source_work"], ["关系", "relationships"], ["特技文本", "ability"],
+];
+const EVALUATION_SCOPE_OPTIONS = [
+  ["全部评语", "all"], ["卡名", "title"], ["核心定位", "positioning"], ["生存能力", "survival"],
+  ["优点", "pros"], ["缺点", "cons"], ["待校准问题", "questions"],
+  ["规则风险", "rules_risk"], ["电子化风险", "digital_risk"], ["完整评审正文", "full_text"],
+];
 
 function escapeHtml(value) {
   return String(value ?? "")
@@ -306,6 +320,39 @@ function getStaticJson(url) {
       author: parsed.searchParams.get("author") || "",
     }));
   }
+  if (parsed.pathname.endsWith("/api/evaluation-stats")) {
+    return Promise.resolve(STATIC_DATA.evaluation_stats || {});
+  }
+  if (parsed.pathname.endsWith("/api/evaluation-search")) {
+    const q = (parsed.searchParams.get("q") || "").trim().toLowerCase();
+    const scope = parsed.searchParams.get("scope") || "all";
+    const category = parsed.searchParams.get("category") || "";
+    const author = parsed.searchParams.get("author") || "";
+    const limit = Math.min(Math.max(Number(parsed.searchParams.get("limit") || 500), 1), 500);
+    const valuesForScope = (item) => {
+      const summary = item.summary || {};
+      const survival = summary.survival || {};
+      const risks = summary.risks || {};
+      const fields = {
+        title: item.title || "",
+        positioning: `${summary.core_positioning || ""}\n${summary.overall || ""}`,
+        survival: JSON.stringify(survival),
+        pros: (summary.pros || []).join("\n"),
+        cons: (summary.cons || []).join("\n"),
+        questions: (summary.questions || []).map((entry) => entry.question || "").join("\n"),
+        rules_risk: JSON.stringify(risks.rules || ""),
+        digital_risk: JSON.stringify(risks.digital || ""),
+        full_text: item.full_text || "",
+      };
+      return scope === "all" ? Object.values(fields).join("\n") : fields[scope] || "";
+    };
+    const results = (STATIC_DATA.evaluation_entries || [])
+      .filter((item) => category ? item.category === category : true)
+      .filter((item) => author ? item.author_group === author : true)
+      .filter((item) => !q || valuesForScope(item).toLowerCase().includes(q))
+      .slice(0, limit);
+    return Promise.resolve({ results, reviewed_count: (STATIC_DATA.evaluation_entries || []).length });
+  }
   if (parsed.pathname.endsWith("/api/search")) {
     const q = (parsed.searchParams.get("q") || "").trim();
     const scope = parsed.searchParams.get("scope") || "all";
@@ -386,6 +433,7 @@ function renderResults() {
         <span>${highlight(row.title, "title")}</span>
         <span class="badge ${categoryClass(row.category)}">${escapeHtml(row.category_label)}</span>
       </div>
+      ${state.searchMode === "evaluations" ? `<div class="evaluation-result-scores"><strong>强度 ${row.strength_score ?? "未评估"}</strong><strong>泛用性 ${row.generality_score ?? "未评估"}</strong><span>${escapeHtml(row.status_label || "AI评估·未校准")}</span></div>` : ""}
       <div class="meta">${escapeHtml(row.author_group || "")} ${escapeHtml(row.source_work || "")} · ${escapeHtml(row.source_sheet)}!${row.source_row}</div>
       <div class="snippet">${highlight(compact(row.snippet || row.description || row.relationships || ""), state.scope)}</div>
     `;
@@ -733,6 +781,24 @@ function renderReviewLayer(review) {
   `;
 }
 
+function setSearchMode(mode) {
+  state.searchMode = mode === "evaluations" ? "evaluations" : "cards";
+  document.body.classList.toggle("evaluation-search-mode", state.searchMode === "evaluations");
+  els.cardSearchMode?.classList.toggle("active", state.searchMode === "cards");
+  els.evaluationSearchMode?.classList.toggle("active", state.searchMode === "evaluations");
+  const options = state.searchMode === "evaluations" ? EVALUATION_SCOPE_OPTIONS : CARD_SCOPE_OPTIONS;
+  const previous = els.scope.value;
+  els.scope.innerHTML = "";
+  options.forEach(([label, value]) => els.scope.append(option(label, value)));
+  els.scope.value = options.some(([, value]) => value === previous) ? previous : "all";
+  els.query.placeholder = state.searchMode === "evaluations"
+    ? "定位、优缺点、风险、问题"
+    : "卡名、机制、出处、作者";
+  els.search.textContent = state.searchMode === "evaluations" ? "检索评语" : "查询卡牌";
+  els.abilityTypeField.classList.toggle("hidden", state.searchMode !== "cards" || els.scope.value !== "ability");
+  state.currentStats = null;
+}
+
 function reviewStatusLabel(status) {
   if (status === "author_confirmed") return "作者已确认";
   if (status === "author_reviewed") return "作者评估";
@@ -754,6 +820,44 @@ function renderEvaluationMethodology(methodology) {
   `;
 }
 
+function renderEvaluationSummary(summary) {
+  if (!summary || typeof summary !== "object") return "";
+  const survival = summary.survival && typeof summary.survival === "object" ? summary.survival : {};
+  const front = survival.front && typeof survival.front === "object" ? survival.front : {};
+  const side = survival.side && typeof survival.side === "object" ? survival.side : {};
+  const risks = summary.risks && typeof summary.risks === "object" ? summary.risks : {};
+  const questions = Array.isArray(summary.questions) ? summary.questions : [];
+  const missing = Array.isArray(summary.missing_fields) ? summary.missing_fields : [];
+  const survivalCard = (label, item) => `
+    <div class="evaluation-summary-card">
+      <div class="evaluation-summary-label">${escapeHtml(label)}${item.score != null ? ` · ${escapeHtml(item.score)}` : " · 未评分"}</div>
+      <div class="text-block">${highlight(item.summary || "旧批次未单列此项。")}</div>
+    </div>
+  `;
+  return `
+    <div class="evaluation-summary">
+      ${summary.core_positioning ? renderReviewField("核心定位", summary.core_positioning) : ""}
+      ${summary.overall ? renderReviewField("一句话总评", summary.overall) : ""}
+      <div class="evaluation-survival-grid">
+        ${survivalCard("正面生存", front)}
+        ${survivalCard("侧面生存", side)}
+      </div>
+      <div class="evaluation-procon-grid">
+        <div>${renderReviewField("优点", summary.pros && summary.pros.length ? summary.pros : ["旧批次未单列。"] )}</div>
+        <div>${renderReviewField("缺点", summary.cons && summary.cons.length ? summary.cons : ["旧批次未单列。"] )}</div>
+      </div>
+      ${renderReviewField("待作者校准问题", questions.length
+        ? questions.map((item) => `${item.question}${item.impact ? `（影响：${item.impact}）` : ""}`)
+        : ["当前结构化摘要中没有开放问题。"])}
+      <div class="evaluation-risk-grid">
+        <div>${renderReviewField(`规则风险${risks.rules?.level ? ` · ${risks.rules.level}` : ""}`, risks.rules?.summary || "旧批次未单列。")}</div>
+        <div>${renderReviewField(`电子化风险${risks.digital?.level ? ` · ${risks.digital.level}` : ""}`, risks.digital?.summary || "旧批次未单列。")}</div>
+      </div>
+      ${missing.length ? `<div class="review-source-note">兼容旧结构：缺失栏目保持未评估，没有自动补写。缺失：${escapeHtml(missing.join("、"))}</div>` : ""}
+    </div>
+  `;
+}
+
 function renderEvaluationLayer(evaluation) {
   const data = evaluation && typeof evaluation === "object"
     ? evaluation
@@ -770,6 +874,7 @@ function renderEvaluationLayer(evaluation) {
       <div class="review-source-note">
         Batch ${escapeHtml(entry.batch)} · ${escapeHtml(entry.category_label || "未识别类别")} · ${escapeHtml(entry.status_label || "AI评估·未校准")}
       </div>
+      ${renderEvaluationSummary(entry.summary)}
       <details class="review-details evaluation-full-text">
         <summary>查看完整评审正文（未压缩）</summary>
         <div class="text-block">${highlight(entry.full_text || "")}</div>
@@ -1540,6 +1645,68 @@ async function loadCard(id) {
   `;
 }
 
+function renderEvaluationDimension(key, dimension) {
+  const distribution = dimension && dimension.distribution ? dimension.distribution : {};
+  const evaluated = Number(dimension?.evaluated_count || 0);
+  return `
+    <section class="section evaluation-stat-card">
+      <div class="evaluation-stat-heading">
+        <h3>${escapeHtml(dimension?.label || key)}</h3>
+        <span>${evaluated ? `${evaluated} 张已评分` : "尚未开始评分"}</span>
+      </div>
+      <div class="stats-grid compact-stats-grid">
+        ${kv("平均", dimension?.average ?? "未评估")}
+        ${kv("中位数", dimension?.median ?? "未评估")}
+      </div>
+      ${evaluated ? `<div class="score-distribution">
+        ${Object.entries(distribution).map(([range, count]) => `
+          <div class="score-bin">
+            <span>${escapeHtml(range)}</span>
+            <div class="score-bar"><i style="width:${Math.max(3, Number(count || 0) / evaluated * 100)}%"></i></div>
+            <strong>${escapeHtml(count)}</strong>
+          </div>
+        `).join("")}
+      </div>` : `<div class="text-block">字段已经预留；未评分卡保持空值，不按0分计入统计。</div>`}
+    </section>
+  `;
+}
+
+async function showEvaluationStatistics() {
+  setDocumentMode(false);
+  setSearchMode("evaluations");
+  const stats = await getJson("/api/evaluation-stats");
+  state.activeId = null;
+  state.results = [];
+  renderResults();
+  els.empty.classList.add("hidden");
+  els.detail.classList.remove("hidden");
+  const dimensions = stats.dimensions || {};
+  els.detail.innerHTML = `
+    <div class="detail-title">
+      <h2>评价统计</h2>
+      <span class="badge">二级评语层</span>
+    </div>
+    <div class="review-source-note evaluation-layer-warning">只统计已有评价，未评估卡不会按0分计算；这些数据不参与牌面源数据检索。</div>
+    <div class="stats-grid">
+      ${kv("牌库卡牌", `${stats.total_card_count || 0} 张`)}
+      ${kv("已有评价", `${stats.reviewed_card_count || 0} 张`)}
+      ${kv("尚未评估", `${stats.unreviewed_card_count || 0} 张`)}
+      ${kv("开放问题", `${stats.open_question_count || 0} 项`)}
+    </div>
+    <div class="evaluation-dimension-grid">
+      ${Object.entries(dimensions).map(([key, dimension]) => renderEvaluationDimension(key, dimension)).join("")}
+    </div>
+    <section class="section statistics-section">
+      <h3>评价状态</h3>
+      <ul class="stat-list">${counterList(Object.entries(stats.status_counts || {}).sort((a, b) => b[1] - a[1]))}</ul>
+    </section>
+    <section class="section statistics-section">
+      <h3>统计口径</h3>
+      <div class="text-block">强度、泛用性、正面生存、侧面生存分别统计。爆发能力与控制能力已预留字段，当前没有评分时显示“尚未开始评分”。后续新增维度无需改动源卡牌数据库。</div>
+    </section>
+  `;
+}
+
 async function runSearch() {
   setDocumentMode(false);
   state.query = els.query.value;
@@ -1554,7 +1721,8 @@ async function runSearch() {
     sort: els.sort.value,
     limit: els.limit.value,
   });
-  const data = await getJson(`/api/search?${params.toString()}`);
+  const endpoint = state.searchMode === "evaluations" ? "/api/evaluation-search" : "/api/search";
+  const data = await getJson(`${endpoint}?${params.toString()}`);
   state.results = data.results;
   if (!state.results.some((row) => row.id === state.activeId)) {
     state.activeId = null;
@@ -1566,6 +1734,14 @@ async function runSearch() {
 
 function bindEvents() {
   els.search.addEventListener("click", runSearch);
+  els.cardSearchMode?.addEventListener("click", () => {
+    setSearchMode("cards");
+    runSearch();
+  });
+  els.evaluationSearchMode?.addEventListener("click", () => {
+    setSearchMode("evaluations");
+    runSearch();
+  });
   els.reset.addEventListener("click", () => {
     els.query.value = "";
     els.scope.value = "all";
@@ -1579,13 +1755,14 @@ function bindEvents() {
     runSearch();
   });
   els.statistics.addEventListener("click", () => showStatistics(true));
+  els.evaluationStatistics?.addEventListener("click", showEvaluationStatistics);
   els.documents.addEventListener("click", () => showDocuments(""));
   els.query.addEventListener("keydown", (event) => {
     if (event.key === "Enter") runSearch();
   });
   
   els.scope.addEventListener("change", () => {
-    if (els.scope.value === "ability") {
+    if (state.searchMode === "cards" && els.scope.value === "ability") {
       els.abilityTypeField.classList.remove("hidden");
     } else {
       els.abilityTypeField.classList.add("hidden");
@@ -1608,6 +1785,7 @@ function bindEvents() {
 async function main() {
   bindEvents();
   await loadMeta();
+  setSearchMode("cards");
   await runSearch();
 }
 

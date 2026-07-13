@@ -18,6 +18,11 @@
           </div>
         </div>
 
+        <div class="search-mode-switcher" aria-label="检索数据层">
+          <button id="cardSearchModeButton" class="mode-button active" type="button">卡牌资料</button>
+          <button id="evaluationSearchModeButton" class="mode-button" type="button">评语与评分</button>
+        </div>
+
         <label class="field">
           <span>关键词</span>
           <input id="queryInput" type="search" placeholder="卡名、机制、出处、作者" autocomplete="off" />
@@ -87,7 +92,8 @@
           <button id="resetButton" type="button">重置</button>
         </div>
 
-        <button id="statisticsButton" class="secondary-action" type="button">统计报告</button>
+        <button id="statisticsButton" class="secondary-action" type="button">牌库统计</button>
+        <button id="evaluationStatisticsButton" class="secondary-action" type="button">评价统计</button>
         <button id="documentsButton" class="secondary-action" type="button">资料库</button>
 
         <div class="stats" id="statsPanel"></div>
