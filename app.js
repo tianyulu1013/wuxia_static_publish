@@ -1348,7 +1348,7 @@ async function loadDocument(id) {
   const doc = await getJson(`/api/document/${encodeURIComponent(id)}`);
   state.activeId = `document:${id}`;
   renderDocumentDetail(doc, "");
-  setMobileActivePage("list");
+  setMobileActivePage("detail");
 }
 
 function renderDocumentHome(documents, searchText = "") {
@@ -1894,11 +1894,13 @@ function setTab(tabName) {
   Object.entries(panels).forEach(([name, panel]) => panel?.classList.toggle("hidden", name !== tabName));
 
   if (tabName === "docs") {
-    if (els.mTabDetail) els.mTabDetail.style.display = "none";
+    if (els.mTabList) els.mTabList.style.display = "none";
+    if (els.mTabDetail) els.mTabDetail.style.display = "";
     if (els.mTabFilter) els.mTabFilter.innerHTML = "📖 目录";
-    if (els.mTabList) els.mTabList.innerHTML = "📄 阅读";
+    if (els.mTabDetail) els.mTabDetail.innerHTML = "📄 阅读";
     setMobileActivePage("filter");
   } else {
+    if (els.mTabList) els.mTabList.style.display = "";
     if (els.mTabDetail) els.mTabDetail.style.display = "";
     if (els.mTabFilter) els.mTabFilter.innerHTML = "🎛️ 筛选";
     if (els.mTabList) els.mTabList.innerHTML = "📋 列表";
@@ -2053,7 +2055,9 @@ function bindEvents() {
   els.mTabFilter?.addEventListener("click", () => setMobileActivePage("filter"));
   els.mTabList?.addEventListener("click", () => setMobileActivePage("list"));
   els.mTabDetail?.addEventListener("click", () => {
-    if (state.activeId === null) {
+    if (state.activeTab === "docs") {
+      setMobileActivePage("detail");
+    } else if (state.activeId === null) {
       if (state.activeTab === "card-search") {
         window.setCardViewMode("stats");
       } else if (state.activeTab === "eval") {
