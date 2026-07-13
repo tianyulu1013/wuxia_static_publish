@@ -484,7 +484,7 @@ function renderResults() {
       <div class="meta">${escapeHtml(row.author_group || "")} ${escapeHtml(row.source_work || "")} \u00b7 ${escapeHtml(row.source_sheet)}!${row.source_row}</div>
       <div class="snippet">${highlight(compact(row.snippet || row.description || row.relationships || ""), state.scope)}</div>
     `;
-    button.addEventListener("click", () => loadCard(row.id));
+    button.addEventListener("click", () => loadCard(row.id, true));
     fragment.append(button);
   }
   els.results.append(fragment);
@@ -1717,7 +1717,7 @@ function renderChangeCandidates(candidates) {
   `;
 }
 
-async function loadCard(id) {
+async function loadCard(id, isUserTriggered = false) {
   state.activeId = id;
   if (state.activeTab === "card-search") {
     state.cardDisplayMode = "detail";
@@ -1726,7 +1726,9 @@ async function loadCard(id) {
     els.evalListModeBtn?.classList.add("active");
     els.evalStatsModeBtn?.classList.remove("active");
   }
-  setMobileActivePage("detail");
+  if (isUserTriggered) {
+    setMobileActivePage("detail");
+  }
   renderResults();
   const card = await getJson(`/api/card/${encodeURIComponent(id)}`);
   els.empty.classList.add("hidden");
@@ -1905,7 +1907,7 @@ function setTab(tabName) {
   }
 }
 
-async function runCardSearch() {
+async function runCardSearch(isUserTriggered = false) {
   setDocumentMode(false);
   state.query = els.cardQ.value;
   state.scope = els.cardScope.value;
@@ -1936,14 +1938,14 @@ async function runCardSearch() {
     state.activeId = null;
     state.cardDisplayMode = "stats";
     showCardSearchStatistics();
-    setMobileActivePage("list");
+    if (isUserTriggered) setMobileActivePage("list");
   } else {
     state.cardDisplayMode = "detail";
-    loadCard(state.activeId);
+    loadCard(state.activeId, isUserTriggered);
   }
 }
 
-async function runEvalSearch() {
+async function runEvalSearch(isUserTriggered = false) {
   setDocumentMode(false);
   state.query = els.evalQ.value;
   state.scope = els.evalScope.value;
@@ -1969,17 +1971,17 @@ async function runEvalSearch() {
     state.activeId = null;
     state.evalDisplayMode = "stats";
     showEvalStatisticsData();
-    setMobileActivePage("list");
+    if (isUserTriggered) setMobileActivePage("list");
   } else {
     state.evalDisplayMode = "list";
-    loadCard(state.activeId);
+    loadCard(state.activeId, isUserTriggered);
   }
 }
 
 function bindEvents() {
   // ① Card search panel
-  els.cardSearchBtn?.addEventListener("click", runCardSearch);
-  els.cardQ?.addEventListener("keydown", (e) => { if (e.key === "Enter") runCardSearch(); });
+  els.cardSearchBtn?.addEventListener("click", () => runCardSearch(true));
+  els.cardQ?.addEventListener("keydown", (e) => { if (e.key === "Enter") runCardSearch(true); });
   els.cardScope?.addEventListener("change", () => {
     if (els.cardScope.value === "ability") {
       els.cardAbilityTypeField.classList.remove("hidden");
@@ -1990,9 +1992,9 @@ function bindEvents() {
   });
   [els.cardScope, els.cardAbilityType, els.cardCategory, els.cardAuthor, els.cardSort, els.cardLimit]
     .filter(Boolean)
-    .forEach((el) => el.addEventListener("change", runCardSearch));
-  els.cardExclusive?.addEventListener("change", runCardSearch);
-  els.cardIdentity?.addEventListener("change", runCardSearch);
+    .forEach((el) => el.addEventListener("change", () => runCardSearch(false)));
+  els.cardExclusive?.addEventListener("change", () => runCardSearch(false));
+  els.cardIdentity?.addEventListener("change", () => runCardSearch(false));
   els.cardResetBtn?.addEventListener("click", () => {
     els.cardQ.value = "";
     els.cardScope.value = "all";
@@ -2004,7 +2006,7 @@ function bindEvents() {
     els.cardLimit.value = "60";
     els.cardExclusive.checked = false;
     els.cardIdentity.checked = false;
-    runCardSearch();
+    runCardSearch(false);
   });
 
   // ③ Eval panel
@@ -2014,17 +2016,17 @@ function bindEvents() {
   els.evalStatsModeBtn?.addEventListener("click", () => {
     window.setEvalViewMode("stats");
   });
-  els.evalSearchBtn?.addEventListener("click", runEvalSearch);
-  els.evalQ?.addEventListener("keydown", (e) => { if (e.key === "Enter") runEvalSearch(); });
+  els.evalSearchBtn?.addEventListener("click", () => runEvalSearch(true));
+  els.evalQ?.addEventListener("keydown", (e) => { if (e.key === "Enter") runEvalSearch(true); });
   [els.evalScope, els.evalCategory, els.evalAuthor].filter(Boolean).forEach((el) =>
-    el.addEventListener("change", runEvalSearch)
+    el.addEventListener("change", () => runEvalSearch(false))
   );
   els.evalResetBtn?.addEventListener("click", () => {
     els.evalQ.value = "";
     els.evalScope.value = "all";
     els.evalCategory.value = "";
     els.evalAuthor.value = "";
-    runEvalSearch();
+    runEvalSearch(false);
   });
 
   // Top tab buttons
