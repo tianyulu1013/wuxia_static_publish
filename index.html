@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>五行卡牌查询</title>
-    <link rel="stylesheet" href="styles.css?v=1783922545" />
+    <link rel="stylesheet" href="styles.css?v=1783958719" />
   </head>
   <body>
     <div class="app-shell">
@@ -18,83 +18,145 @@
           </div>
         </div>
 
-        <div class="search-mode-switcher" aria-label="检索数据层">
-          <button id="cardSearchModeButton" class="mode-button active" type="button">卡牌资料</button>
-          <button id="evaluationSearchModeButton" class="mode-button" type="button">评语与评分</button>
+        <!-- 顶级三 Tab -->
+        <div class="sidebar-tabs" aria-label="功能版块">
+          <button id="tabCard" class="tab-button active" type="button">🔍 检索</button>
+          <button id="tabEval" class="tab-button" type="button">💬 评语</button>
+          <button id="tabDocs" class="tab-button" type="button">📚 资料</button>
         </div>
 
-        <label class="field">
-          <span>关键词</span>
-          <input id="queryInput" type="search" placeholder="卡名、机制、出处、作者" autocomplete="off" />
-        </label>
-
-        <label class="field">
-          <span>范围</span>
-          <select id="scopeSelect">
-            <option value="all" selected>全文</option>
-            <option value="title">名称</option>
-            <option value="identity">身份/属性</option>
-            <option value="weapons">兵器</option>
-            <option value="source_work">出处</option>
-            <option value="relationships">关系</option>
-            <option value="ability">特技文本</option>
-          </select>
-        </label>
-
-        <label class="field hidden" id="abilityTypeField">
-          <span>特技类型</span>
-          <select id="abilityTypeSelect">
-            <option value="" selected>全部</option>
-            <option value="内功">内功</option>
-            <option value="招式">招式</option>
-            <option value="武功">武功</option>
-            <option value="技能">技能</option>
-            <option value="*">*</option>
-            <option value="字">字</option>
-            <option value="说明">说明</option>
-            <option value="符卡">符卡</option>
-          </select>
-        </label>
-
-        <div class="field-grid">
+        <!-- ① 卡牌检索面板 -->
+        <div id="cardSearchPanel" class="tab-panel">
           <label class="field">
-            <span>类别</span>
-            <select id="categorySelect"></select>
+            <span>关键词</span>
+            <input id="cardQ" type="search" placeholder="卡名、机制、出处、作者" autocomplete="off" />
           </label>
-          <label class="field">
-            <span>作者</span>
-            <select id="authorSelect"></select>
-          </label>
-        </div>
 
-        <div class="field-grid">
           <label class="field">
-            <span>排序</span>
-            <select id="sortSelect">
-              <option value="sheet">牌表顺序</option>
+            <span>范围</span>
+            <select id="cardScope">
+              <option value="all" selected>全文</option>
               <option value="title">名称</option>
-              <option value="category">类别</option>
+              <option value="identity">身份/属性</option>
+              <option value="weapons">兵器</option>
+              <option value="source_work">出处</option>
+              <option value="relationships">关系</option>
+              <option value="ability">特技文本</option>
             </select>
           </label>
-          <label class="field">
-            <span>数量</span>
-            <select id="limitSelect">
-              <option>30</option>
-              <option selected>60</option>
-              <option>120</option>
-              <option>240</option>
+
+          <label class="field hidden" id="cardAbilityTypeField">
+            <span>特技类型</span>
+            <select id="cardAbilityType">
+              <option value="" selected>全部</option>
+              <option value="内功">内功</option>
+              <option value="招式">招式</option>
+              <option value="武功">武功</option>
+              <option value="技能">技能</option>
+              <option value="*">*</option>
+              <option value="字">字</option>
+              <option value="说明">说明</option>
+              <option value="符卡">符卡</option>
             </select>
           </label>
+
+          <div class="field-grid checkbox-field-grid">
+            <label class="checkbox-label">
+              <input type="checkbox" id="cardExclusive" />
+              <span>专属特技</span>
+            </label>
+            <label class="checkbox-label">
+              <input type="checkbox" id="cardIdentity" />
+              <span>身份特技</span>
+            </label>
+          </div>
+
+          <div class="field-grid">
+            <label class="field">
+              <span>类别</span>
+              <select id="cardCategory"></select>
+            </label>
+            <label class="field">
+              <span>作者</span>
+              <select id="cardAuthor"></select>
+            </label>
+          </div>
+
+          <div class="field-grid">
+            <label class="field">
+              <span>排序</span>
+              <select id="cardSort">
+                <option value="sheet">牌表顺序</option>
+                <option value="title">名称</option>
+                <option value="category">类别</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>数量</span>
+              <select id="cardLimit">
+                <option>30</option>
+                <option selected>60</option>
+                <option>120</option>
+                <option>240</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="actions">
+            <button id="cardSearchBtn" type="button">查询</button>
+            <button id="cardResetBtn" type="button">重置</button>
+          </div>
         </div>
 
-        <div class="actions">
-          <button id="searchButton" type="button">查询</button>
-          <button id="resetButton" type="button">重置</button>
+
+        <!-- ③ 评语检索面板 -->
+        <div id="evalPanel" class="tab-panel hidden">
+
+
+          <div id="evalSearchControls">
+            <label class="field">
+              <span>关键词</span>
+              <input id="evalQ" type="search" placeholder="搜索评语正文" autocomplete="off" />
+            </label>
+
+            <label class="field">
+              <span>范围</span>
+              <select id="evalScope">
+                <option value="all" selected>全部评语</option>
+                <option value="positioning">核心定位</option>
+                <option value="survival">生存能力</option>
+                <option value="pros">优点</option>
+                <option value="cons">缺点</option>
+                <option value="questions">待校准问题</option>
+                <option value="rules_risk">规则风险</option>
+                <option value="digital_risk">电子化风险</option>
+                <option value="full_text">完整评审正文</option>
+              </select>
+            </label>
+
+            <div class="field-grid">
+              <label class="field">
+                <span>类别</span>
+                <select id="evalCategory"></select>
+              </label>
+              <label class="field">
+                <span>作者</span>
+                <select id="evalAuthor"></select>
+              </label>
+            </div>
+
+            <div class="actions">
+              <button id="evalSearchBtn" type="button">查询</button>
+              <button id="evalResetBtn" type="button">重置</button>
+            </div>
+          </div>
         </div>
 
-        <button id="statisticsButton" class="secondary-action" type="button">牌库统计</button>
-        <button id="evaluationStatisticsButton" class="secondary-action" type="button">评价统计</button>
-        <button id="documentsButton" class="secondary-action" type="button">资料库</button>
+        <!-- ④ 资料面板 -->
+        <div id="docsPanel" class="tab-panel hidden">
+          <p class="docs-hint-text">点击右侧文献标题打开查阅系统。</p>
+          <div id="docsSidebarList" class="docs-sidebar-list"></div>
+        </div>
 
         <div class="stats" id="statsPanel"></div>
       </aside>
@@ -114,8 +176,14 @@
         </section>
       </main>
     </div>
+    <div class="mobile-tabbar" aria-label="手机端导航">
+      <button id="mTabFilter" class="m-tab-btn active" type="button">🎛️ 筛选</button>
+      <button id="mTabList" class="m-tab-btn" type="button">📋 列表</button>
+      <button id="mTabDetail" class="m-tab-btn" type="button">📊 详情</button>
+    </div>
 
-    <script src="static-data.js?v=1783922545"></script>
-    <script src="app.js?v=1783922545"></script>
+    <script src="static-data.js?v=1783958719"></script>
+    <script src="app.js?v=1783958719"></script>
   </body>
 </html>
+

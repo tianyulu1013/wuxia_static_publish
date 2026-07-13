@@ -6,52 +6,74 @@ const state = {
   abilityType: "",
   statSortMode: "count",
   currentStats: null,
+  currentEvalStats: null,
   documentMeta: null,
   documentListQuery: "",
   currentDocument: null,
   currentDocumentQuery: "",
   currentDocumentMatchIndex: -1,
   evaluationMethodology: null,
-  searchMode: "cards",
+  activeTab: "card-search", // "card-search" | "eval" | "docs"
+  cardDisplayMode: "stats", // "stats" | "detail"
+  evalDisplayMode: "list",  // "list" | "stats"
+  mobileActivePage: "filter", // "filter" | "list" | "detail"
 };
 
 const els = {
   workspace: document.querySelector(".workspace"),
   siteVersion: document.querySelector("#siteVersion"),
   dbMeta: document.querySelector("#dbMeta"),
-  query: document.querySelector("#queryInput"),
-  scope: document.querySelector("#scopeSelect"),
-  abilityTypeField: document.querySelector("#abilityTypeField"),
-  abilityType: document.querySelector("#abilityTypeSelect"),
-  category: document.querySelector("#categorySelect"),
-  author: document.querySelector("#authorSelect"),
-  sort: document.querySelector("#sortSelect"),
-  limit: document.querySelector("#limitSelect"),
-  search: document.querySelector("#searchButton"),
-  cardSearchMode: document.querySelector("#cardSearchModeButton"),
-  evaluationSearchMode: document.querySelector("#evaluationSearchModeButton"),
-  reset: document.querySelector("#resetButton"),
-  statistics: document.querySelector("#statisticsButton"),
-  evaluationStatistics: document.querySelector("#evaluationStatisticsButton"),
-  documents: document.querySelector("#documentsButton"),
+
+  // Tab buttons
+  tabCard: document.querySelector("#tabCard"),
+  tabEval: document.querySelector("#tabEval"),
+  tabDocs: document.querySelector("#tabDocs"),
+
+  // Tab panels
+  cardSearchPanel: document.querySelector("#cardSearchPanel"),
+  evalPanel: document.querySelector("#evalPanel"),
+  docsPanel: document.querySelector("#docsPanel"),
+
+  // ① Card search panel elements
+  cardQ: document.querySelector("#cardQ"),
+  cardScope: document.querySelector("#cardScope"),
+  cardAbilityTypeField: document.querySelector("#cardAbilityTypeField"),
+  cardAbilityType: document.querySelector("#cardAbilityType"),
+  cardExclusive: document.querySelector("#cardExclusive"),
+  cardIdentity: document.querySelector("#cardIdentity"),
+  cardCategory: document.querySelector("#cardCategory"),
+  cardAuthor: document.querySelector("#cardAuthor"),
+  cardSort: document.querySelector("#cardSort"),
+  cardLimit: document.querySelector("#cardLimit"),
+  cardSearchBtn: document.querySelector("#cardSearchBtn"),
+  cardResetBtn: document.querySelector("#cardResetBtn"),
+
+  // ③ Eval panel elements
+  evalSearchControls: document.querySelector("#evalSearchControls"),
+  evalQ: document.querySelector("#evalQ"),
+  evalScope: document.querySelector("#evalScope"),
+  evalCategory: document.querySelector("#evalCategory"),
+  evalAuthor: document.querySelector("#evalAuthor"),
+  evalSearchBtn: document.querySelector("#evalSearchBtn"),
+  evalResetBtn: document.querySelector("#evalResetBtn"),
+
+  // ④ Docs panel elements
+  docsSidebarList: document.querySelector("#docsSidebarList"),
+
+  // Shared output elements
   stats: document.querySelector("#statsPanel"),
   count: document.querySelector("#resultCount"),
   results: document.querySelector("#resultsList"),
   empty: document.querySelector("#emptyState"),
   detail: document.querySelector("#cardDetail"),
+
+  // Mobile tab buttons
+  mTabFilter: document.querySelector("#mTabFilter"),
+  mTabList: document.querySelector("#mTabList"),
+  mTabDetail: document.querySelector("#mTabDetail"),
 };
 
 const STATIC_DATA = window.CARD_BROWSER_STATIC_DATA || null;
-
-const CARD_SCOPE_OPTIONS = [
-  ["全文", "all"], ["名称", "title"], ["身份/属性", "identity"], ["兵器", "weapons"],
-  ["出处", "source_work"], ["关系", "relationships"], ["特技文本", "ability"],
-];
-const EVALUATION_SCOPE_OPTIONS = [
-  ["全部评语", "all"], ["卡名", "title"], ["核心定位", "positioning"], ["生存能力", "survival"],
-  ["优点", "pros"], ["缺点", "cons"], ["待校准问题", "questions"],
-  ["规则风险", "rules_risk"], ["电子化风险", "digital_risk"], ["完整评审正文", "full_text"],
-];
 
 function escapeHtml(value) {
   return String(value ?? "")
@@ -150,16 +172,28 @@ function textSnippets(content, q, limit = 3, radius = 70) {
   return snippets;
 }
 
-function staticMatchesScope(card, q, scope, abilityType = "") {
+function staticMatchesScope(card, q, scope, abilityType = "", isExclusive = false, isIdentity = false) {
   const nq = normalizeTitle(q);
-  const abilities = Array.isArray(card.abilities) ? card.abilities : [];
+  let abilities = Array.isArray(card.abilities) ? card.abilities : [];
   const units = Array.isArray(card.units) ? card.units : [];
+  
+  if (isExclusive) {
+    abilities = abilities.filter(abilityIsExclusive);
+  }
+  if (isIdentity) {
+    abilities = abilities.filter(abilityIsIdentity);
+  }
+
   if (!q) {
     if (scope === "ability" && abilityType) {
       return abilities.some((ability) => ability.kind === abilityType);
     }
+    if (isExclusive || isIdentity) {
+      return abilities.length > 0;
+    }
     return true;
   }
+  
   if (scope === "title") return contains(card.title, q) || contains(card.normalized_title, nq);
   if (scope === "identity") {
     return containsAny([card.identity, abilities.map((item) => item.owner_identity), units.map((unit) => [unit.identity, unit.entity_kind])], q);
@@ -184,7 +218,7 @@ function staticMatchesScope(card, q, scope, abilityType = "") {
     card.weapons,
     card.source_work,
     card.author_group,
-    card.all_text,
+    abilities.map(a => `${a.kind} ${a.name} ${a.text}`),
     units,
   ], q);
 }
@@ -237,11 +271,11 @@ function compareStaticCards(a, b, sort, q) {
     || Number(a.source_row || 0) - Number(b.source_row || 0);
 }
 
-function staticFilteredCards({ q = "", scope = "all", abilityType = "", category = "", author = "" } = {}) {
+function staticFilteredCards({ q = "", scope = "all", abilityType = "", category = "", author = "", isExclusive = false, isIdentity = false } = {}) {
   return Object.values(STATIC_DATA.cards)
     .filter((card) => category ? card.category === category : card.category !== "deprecated")
     .filter((card) => author ? card.author_group === author : true)
-    .filter((card) => staticMatchesScope(card, q, scope, abilityType));
+    .filter((card) => staticMatchesScope(card, q, scope, abilityType, isExclusive, isIdentity));
 }
 
 function countBy(items, getter) {
@@ -259,7 +293,7 @@ function abilityIsExclusive(ability) {
 }
 
 function abilityIsIdentity(ability) {
-  return /[（(]身份[）)]\s*$/.test(String(ability?.text || "").trim());
+  return /[（(]身份[）)]\s*$/.test(String(ability?.text || "").trim()) || /[（(]身份[）)]\s*$/.test(String(ability?.name || "").trim());
 }
 
 function staticStatQuery(params) {
@@ -318,6 +352,8 @@ function getStaticJson(url) {
       abilityType: parsed.searchParams.get("ability_type") || "",
       category: parsed.searchParams.get("category") || "",
       author: parsed.searchParams.get("author") || "",
+      isExclusive: parsed.searchParams.get("is_exclusive") === "1",
+      isIdentity: parsed.searchParams.get("is_identity") === "1",
     }));
   }
   if (parsed.pathname.endsWith("/api/evaluation-stats")) {
@@ -361,7 +397,9 @@ function getStaticJson(url) {
     const author = parsed.searchParams.get("author") || "";
     const sort = parsed.searchParams.get("sort") || "sheet";
     const limit = Math.min(Math.max(Number(parsed.searchParams.get("limit") || 60), 1), 500);
-    const cards = staticFilteredCards({ q, scope, abilityType, category, author })
+    const isExclusive = parsed.searchParams.get("is_exclusive") === "1";
+    const isIdentity = parsed.searchParams.get("is_identity") === "1";
+    const cards = staticFilteredCards({ q, scope, abilityType, category, author, isExclusive, isIdentity })
       .sort((a, b) => compareStaticCards(a, b, sort, q))
       .slice(0, limit)
       .map((card) => staticSummary(card, scope));
@@ -401,27 +439,36 @@ async function loadMeta() {
   if (els.siteVersion) {
     els.siteVersion.textContent = versionParts.length ? versionParts.join(" \u00b7 ") : "\u672c\u5730\u7248";
   }
-  els.dbMeta.textContent = `${meta.record_count} 张，${meta.source_workbook}`;
+  els.dbMeta.textContent = `${meta.record_count} \u5f20\uff0c${meta.source_workbook}`;
   els.stats.innerHTML = meta.by_category
-    .map((row) => `<div>${escapeHtml(row.category_label)}：${row.count}</div>`)
+    .map((row) => `<div>${escapeHtml(row.category_label)}\uff1a${row.count}</div>`)
     .join("");
 
-  els.category.append(option("全部", ""));
-  meta.categories.forEach((item) => els.category.append(option(item.label, item.value)));
-
-  els.author.append(option("全部", ""));
-  meta.authors.forEach((name) => els.author.append(option(name, name)));
+  // Populate category + author for all 2 panels (card search, eval)
+  const categorySelects = [els.cardCategory, els.evalCategory];
+  const authorSelects = [els.cardAuthor, els.evalAuthor];
+  categorySelects.forEach((sel) => {
+    if (!sel) return;
+    sel.append(option("\u5168\u90e8", ""));
+    meta.categories.forEach((item) => sel.append(option(item.label, item.value)));
+  });
+  authorSelects.forEach((sel) => {
+    if (!sel) return;
+    sel.append(option("\u5168\u90e8", ""));
+    meta.authors.forEach((name) => sel.append(option(name, name)));
+  });
 }
 
 function renderResults() {
-  els.count.textContent = `${state.results.length} 条`;
+  els.count.textContent = `${state.results.length} \u6761`;
   els.results.innerHTML = "";
 
   if (state.results.length === 0) {
-    els.results.innerHTML = '<div class="empty-state">没有匹配结果</div>';
+    els.results.innerHTML = '<div class="empty-state">\u6ca1\u6709\u5339\u914d\u7ed3\u679c</div>';
     return;
   }
 
+  const isEval = state.activeTab === "eval" && state.evalDisplayMode === "list";
   const fragment = document.createDocumentFragment();
   for (const row of state.results) {
     const button = document.createElement("button");
@@ -433,8 +480,8 @@ function renderResults() {
         <span>${highlight(row.title, "title")}</span>
         <span class="badge ${categoryClass(row.category)}">${escapeHtml(row.category_label)}</span>
       </div>
-      ${state.searchMode === "evaluations" ? `<div class="evaluation-result-scores"><strong>强度 ${row.strength_score ?? "未评估"}</strong><strong>泛用性 ${row.generality_score ?? "未评估"}</strong><span>${escapeHtml(row.status_label || "AI评估·未校准")}</span></div>` : ""}
-      <div class="meta">${escapeHtml(row.author_group || "")} ${escapeHtml(row.source_work || "")} · ${escapeHtml(row.source_sheet)}!${row.source_row}</div>
+      ${isEval ? `<div class="evaluation-result-scores"><strong>\u5f3a\u5ea6 ${row.strength_score ?? "\u672a\u8bc4\u4f30"}</strong><strong>\u6cdb\u7528\u6027 ${row.generality_score ?? "\u672a\u8bc4\u4f30"}</strong><span>${escapeHtml(row.status_label || "AI\u8bc4\u4f30\u00b7\u672a\u6821\u51c6")}</span></div>` : ""}
+      <div class="meta">${escapeHtml(row.author_group || "")} ${escapeHtml(row.source_work || "")} \u00b7 ${escapeHtml(row.source_sheet)}!${row.source_row}</div>
       <div class="snippet">${highlight(compact(row.snippet || row.description || row.relationships || ""), state.scope)}</div>
     `;
     button.addEventListener("click", () => loadCard(row.id));
@@ -635,6 +682,14 @@ function renderAbilityRecords(abilities, fallbackText, options = {}) {
         .map((ability) => {
           const kind = ability.kind || "说明";
           const className = abilityClass(kind, ability.raw_name || ability.name || "");
+          
+          const isExclusive = abilityIsExclusive(ability);
+          const isIdentity = abilityIsIdentity(ability);
+          
+          const exclusiveBadge = isExclusive ? `<span class="ability-badge exclusive">专属</span>` : "";
+          const identityBadge = isIdentity ? `<span class="ability-badge identity" title="身份特技：结算时序不受“看不见”和“禁制”影响，但会被“混”克制。">身份</span>` : "";
+          const badgesHtml = `${exclusiveBadge}${identityBadge}`;
+
           const name = ability.name ? `<span class="ability-name">${highlight(ability.name, "ability:" + kind)}${ability.name.endsWith("：") ? "" : "："}</span>` : "";
           const body = abilityBodyText(ability);
           const flags = Array.isArray(ability.review_flags) && ability.review_flags.length
@@ -642,7 +697,7 @@ function renderAbilityRecords(abilities, fallbackText, options = {}) {
             : "";
           return `
             <div class="ability-block ${className}">
-              <div class="ability-kind">${escapeHtml(kind)}</div>
+              <div class="ability-kind">${escapeHtml(kind)}${badgesHtml}</div>
               <div class="ability-content">
                 <div class="ability-line">${name}${highlight(body, "ability:" + kind)}${showOwnerMeta ? renderOwnerMeta(ability) : ""}</div>
                 ${flags}
@@ -781,23 +836,11 @@ function renderReviewLayer(review) {
   `;
 }
 
+// setSearchMode is a legacy stub; mode switching now handled by tab architecture
 function setSearchMode(mode) {
   state.searchMode = mode === "evaluations" ? "evaluations" : "cards";
-  document.body.classList.toggle("evaluation-search-mode", state.searchMode === "evaluations");
-  els.cardSearchMode?.classList.toggle("active", state.searchMode === "cards");
-  els.evaluationSearchMode?.classList.toggle("active", state.searchMode === "evaluations");
-  const options = state.searchMode === "evaluations" ? EVALUATION_SCOPE_OPTIONS : CARD_SCOPE_OPTIONS;
-  const previous = els.scope.value;
-  els.scope.innerHTML = "";
-  options.forEach(([label, value]) => els.scope.append(option(label, value)));
-  els.scope.value = options.some(([, value]) => value === previous) ? previous : "all";
-  els.query.placeholder = state.searchMode === "evaluations"
-    ? "定位、优缺点、风险、问题"
-    : "卡名、机制、出处、作者";
-  els.search.textContent = state.searchMode === "evaluations" ? "检索评语" : "查询卡牌";
-  els.abilityTypeField.classList.toggle("hidden", state.searchMode !== "cards" || els.scope.value !== "ability");
-  state.currentStats = null;
 }
+
 
 function reviewStatusLabel(status) {
   if (status === "author_confirmed") return "作者已确认";
@@ -1305,6 +1348,7 @@ async function loadDocument(id) {
   const doc = await getJson(`/api/document/${encodeURIComponent(id)}`);
   state.activeId = `document:${id}`;
   renderDocumentDetail(doc, "");
+  setMobileActivePage("list");
 }
 
 function renderDocumentHome(documents, searchText = "") {
@@ -1359,13 +1403,31 @@ function renderDocumentHome(documents, searchText = "") {
   });
 }
 
+function renderDocsSidebarList(documents) {
+  if (!els.docsSidebarList) return;
+  els.docsSidebarList.innerHTML = documents.map(doc => `
+    <button class="docs-sidebar-item ${state.activeId === 'document:' + doc.id ? 'active' : ''}" type="button" data-sidebar-doc-id="${escapeHtml(doc.id)}">
+      <strong>${escapeHtml(doc.title)}</strong>
+      ${doc.version ? `<small>版本：${escapeHtml(doc.version)}</small>` : ""}
+    </button>
+  `).join("");
+  
+  els.docsSidebarList.querySelectorAll("[data-sidebar-doc-id]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      els.docsSidebarList.querySelectorAll(".docs-sidebar-item").forEach(item => item.classList.remove("active"));
+      btn.classList.add("active");
+      loadDocument(btn.dataset.sidebarDocId);
+    });
+  });
+}
+
 async function showDocuments(searchText = "") {
   setDocumentMode(true);
   els.empty.classList.add("hidden");
   els.detail.classList.remove("hidden");
   els.count.textContent = "";
   els.results.innerHTML = "";
-  els.detail.innerHTML = `<div class="empty-state">\u8bfb\u53d6\u8d44\u6599\u4e2d...</div>`;
+  els.detail.innerHTML = `<div class="empty-state">读取资料中...</div>`;
   try {
     searchText = typeof searchText === "string" ? searchText : "";
     state.documentListQuery = searchText;
@@ -1383,13 +1445,14 @@ async function showDocuments(searchText = "") {
       };
     }
     const documents = Array.isArray(data.results) ? data.results : (Array.isArray(data.documents) ? data.documents : []);
-    els.count.textContent = `${documents.length} \u9879`;
+    els.count.textContent = `${documents.length} 项`;
     renderDocumentHome(documents, searchText);
+    renderDocsSidebarList(documents);
   } catch (error) {
     console.error(error);
-    els.count.textContent = "\u8d44\u6599\u8bfb\u53d6\u5931\u8d25";
+    els.count.textContent = "资料读取失败";
     const message = escapeHtml(error.message || String(error));
-    els.detail.innerHTML = `<div class="empty-state">\u8d44\u6599\u8bfb\u53d6\u5931\u8d25\uff1a${message}</div>`;
+    els.detail.innerHTML = `<div class="empty-state">资料读取失败：${message}</div>`;
   }
 }
 
@@ -1421,6 +1484,17 @@ const SOURCE_WORK_TO_AUTHOR = {
   "请借夫人一用": "温瑞安", "七大寇": "温瑞安", "逆水寒": "温瑞安", "大侠传奇": "温瑞安", "布衣神相": "温瑞安",
   "白衣方振眉": "温瑞安",
 };
+
+function setMobileActivePage(page) {
+  state.mobileActivePage = page;
+  document.body.classList.remove("active-page-filter", "active-page-list", "active-page-detail");
+  document.body.classList.add(`active-page-${page}`);
+
+  // 联动底部按钮高亮
+  els.mTabFilter?.classList.toggle("active", page === "filter");
+  els.mTabList?.classList.toggle("active", page === "list");
+  els.mTabDetail?.classList.toggle("active", page === "detail");
+}
 
 function sortCounter(counterEntries, type) {
   if (state.statSortMode === "count") {
@@ -1477,48 +1551,93 @@ function counterList(sortedEntries, limit = 100) {
     .join("");
 }
 
-function currentFilterParams() {
-  return {
-    q: els.query.value,
-    scope: els.scope.value,
-    category: els.category.value,
-    author: els.author.value,
-  };
-}
+window.setCardViewMode = function(mode) {
+  state.cardDisplayMode = mode;
+  if (mode === "stats") {
+    state.activeId = null;
+    renderResults();
+    showCardSearchStatistics();
+    setMobileActivePage("detail");
+  } else {
+    if (state.results.length > 0) {
+      loadCard(state.results[0].id);
+    } else {
+      els.detail.innerHTML = `
+        <div class="detail-view-tabs">
+          <button class="view-tab-btn active" onclick="window.setCardViewMode('detail')">📄 单卡详情</button>
+          <button class="view-tab-btn" onclick="window.setCardViewMode('stats')">📊 汇总统计</button>
+        </div>
+        <div class="empty-state">当前结果列表为空，没有可展示详情的卡牌</div>
+      `;
+      setMobileActivePage("detail");
+    }
+  }
+};
+
+window.setEvalViewMode = function(mode) {
+  state.evalDisplayMode = mode;
+  if (mode === "stats") {
+    els.evalListModeBtn?.classList.remove("active");
+    els.evalStatsModeBtn?.classList.add("active");
+    state.activeId = null;
+    renderResults();
+    showEvalStatisticsData();
+    setMobileActivePage("detail");
+  } else {
+    els.evalListModeBtn?.classList.add("active");
+    els.evalStatsModeBtn?.classList.remove("active");
+    if (state.results.length > 0) {
+      loadCard(state.results[0].id);
+    } else {
+      els.detail.innerHTML = `
+        <div class="detail-view-tabs">
+          <button class="view-tab-btn active" onclick="window.setEvalViewMode('list')">💬 评语详情</button>
+          <button class="view-tab-btn" onclick="window.setEvalViewMode('stats')">📈 评分统计</button>
+        </div>
+        <div class="empty-state">当前结果列表为空，没有可展示评语的卡牌</div>
+      `;
+      setMobileActivePage("detail");
+    }
+  }
+};
 
 function filterSummary(filters) {
   const parts = [];
   if (filters.q) parts.push(`关键词：${filters.q}`);
-  if (filters.scope && filters.scope !== "all") {
-    const selected = els.scope.options[els.scope.selectedIndex];
-    parts.push(`范围：${selected ? selected.textContent : filters.scope}`);
-  }
-  if (filters.category) {
-    const selected = els.category.options[els.category.selectedIndex];
-    parts.push(`类别：${selected ? selected.textContent : filters.category}`);
-  }
+  if (filters.category) parts.push(`类别：${filters.category}`);
   if (filters.author) parts.push(`作者：${filters.author}`);
+  if (filters.is_exclusive === "1") parts.push("专属特技");
+  if (filters.is_identity === "1") parts.push("身份特技");
   return parts.length ? parts.join("；") : "当前牌库，不含废弃记录";
 }
 
-async function showStatistics(forceFetch = false) {
+async function showCardSearchStatistics() {
   setDocumentMode(false);
-  const filters = currentFilterParams();
-  if (forceFetch || !state.currentStats) {
-    const stats = await getJson(`/api/stat-query?${new URLSearchParams(filters).toString()}`);
-    state.currentStats = stats;
-  }
   const stats = state.currentStats;
+  if (!stats) return;
+
   state.activeId = null;
-  renderResults();
   els.empty.classList.add("hidden");
   els.detail.classList.remove("hidden");
+
+  const filters = {
+    q: els.cardQ.value,
+    category: els.cardCategory.value,
+    author: els.cardAuthor.value,
+    is_exclusive: els.cardExclusive.checked ? "1" : "0",
+    is_identity: els.cardIdentity.checked ? "1" : "0",
+  };
+
   els.detail.innerHTML = `
+    <div class="detail-view-tabs">
+      <button class="view-tab-btn" onclick="window.setCardViewMode('detail')">📄 单卡详情</button>
+      <button class="view-tab-btn active" onclick="window.setCardViewMode('stats')">📊 汇总统计</button>
+    </div>
     <div class="detail-title">
       <h2>筛选统计</h2>
       <span class="badge">动态</span>
     </div>
-    <div class="text-block stat-filter-summary">${highlight(filterSummary(filters))}</div>
+    <div class="text-block stat-filter-summary">${filterSummary(filters)}</div>
     
     <div class="stat-sort-switcher">
       <span>排序方式：</span>
@@ -1535,8 +1654,8 @@ async function showStatistics(forceFetch = false) {
     <div class="stats-grid">
       ${kv("卡牌", `${stats.card_count || 0} 张`)}
       ${kv("特技/说明", `${stats.ability_count || 0} 条`)}
-      ${kv("专属特技", `${stats.exclusive_ability_count || 0} 条`)}
-      ${kv("身份特技", `${stats.identity_ability_count || 0} 条`)}
+      ${kv("专属特技", `${stats.exclusive_ability_count || 0} 张`)}
+      ${kv("身份特技", `${stats.identity_ability_count || 0} 张`)}
     </div>
     <div class="section statistics-section">
       <h3>卡牌类型</h3>
@@ -1559,6 +1678,13 @@ async function showStatistics(forceFetch = false) {
       <div class="text-block">统计按当前左侧筛选条件实时计算；未选择类别时默认排除废弃记录。</div>
     </div>
   `;
+
+  els.detail.querySelectorAll('input[name="statSort"]').forEach(radio => {
+    radio.addEventListener('change', (e) => {
+      state.statSortMode = e.target.value;
+      showCardSearchStatistics();
+    });
+  });
 }
 
 function renderChangeCandidates(candidates) {
@@ -1593,11 +1719,37 @@ function renderChangeCandidates(candidates) {
 
 async function loadCard(id) {
   state.activeId = id;
+  if (state.activeTab === "card-search") {
+    state.cardDisplayMode = "detail";
+  } else if (state.activeTab === "eval") {
+    state.evalDisplayMode = "list";
+    els.evalListModeBtn?.classList.add("active");
+    els.evalStatsModeBtn?.classList.remove("active");
+  }
+  setMobileActivePage("detail");
   renderResults();
   const card = await getJson(`/api/card/${encodeURIComponent(id)}`);
   els.empty.classList.add("hidden");
   els.detail.classList.remove("hidden");
   els.detail.innerHTML = `
+    ${(() => {
+      if (state.activeTab === "card-search") {
+        return `
+          <div class="detail-view-tabs">
+            <button class="view-tab-btn active" onclick="window.setCardViewMode('detail')">📄 单卡详情</button>
+            <button class="view-tab-btn" onclick="window.setCardViewMode('stats')">📊 汇总统计</button>
+          </div>
+        `;
+      } else if (state.activeTab === "eval") {
+        return `
+          <div class="detail-view-tabs">
+            <button class="view-tab-btn active" onclick="window.setEvalViewMode('list')">💬 评语详情</button>
+            <button class="view-tab-btn" onclick="window.setEvalViewMode('stats')">📈 评分统计</button>
+          </div>
+        `;
+      }
+      return "";
+    })()}
     <div class="detail-title">
       <h2>${highlight(card.title, "title")}</h2>
       <span class="badge ${categoryClass(card.category)}">${escapeHtml(card.category_label)}</span>
@@ -1608,34 +1760,34 @@ async function loadCard(id) {
         const isItem = card.category === "items";
         let html = "";
         if (isChar) {
-          html += kv("生命", card.life);
-          html += kv("性别", card.gender);
-          html += kv("兵器", card.weapons);
+          html += kv("\u751f\u547d", card.life);
+          html += kv("\u6027\u522b", card.gender);
+          html += kv("\u5175\u5668", card.weapons);
         } else if (isItem) {
-          html += kv("类别", card.item_category);
-          html += kv("特性", card.traits);
+          html += kv("\u7c7b\u522b", card.item_category);
+          html += kv("\u7279\u6027", card.traits);
         }
-        html += kv("出处", card.source_work);
-        html += kv("作者", card.author_group);
-        html += kv("位置", `${card.source_sheet}!${card.source_row}`);
+        html += kv("\u51fa\u5904", card.source_work);
+        html += kv("\u4f5c\u8005", card.author_group);
+        html += kv("\u4f4d\u7f6e", `${card.source_sheet}!${card.source_row}`);
         html += kv("ID", card.id);
         return html;
       })()}
     </div>
     ${card.image_url ? `
       <figure class="card-face">
-        <img src="${escapeHtml(card.image_url)}" alt="${escapeHtml(card.title)} 卡面">
+        <img src="${escapeHtml(card.image_url)}" alt="${escapeHtml(card.title)} \u5361\u9762">
       </figure>
     ` : ""}
     ${renderIdentityRules(card)}
     <div class="section">
-      <h3>描述</h3>
+      <h3>\u63cf\u8ff0</h3>
       ${renderUnitGroups(card)}
     </div>
     ${renderStructureNotes(card.structure_notes)}
     <div class="section">
-      <h3>关系</h3>
-      <div class="text-block">${highlight(card.relationships || "—", "relationships")}</div>
+      <h3>\u5173\u7cfb</h3>
+      <div class="text-block">${highlight(card.relationships || "\u2014", "relationships")}</div>
     </div>
     ${renderReviewLayer(card.review)}
     ${renderUnderstandingLayer(card.understanding_note)}
@@ -1671,22 +1823,40 @@ function renderEvaluationDimension(key, dimension) {
   `;
 }
 
-async function showEvaluationStatistics() {
+async function showEvaluationStatistics(forceFetch = false) {
   setDocumentMode(false);
-  setSearchMode("evaluations");
-  const stats = await getJson("/api/evaluation-stats");
   state.activeId = null;
-  state.results = [];
-  renderResults();
+  if (forceFetch || !state.currentEvalStats) {
+    const params = new URLSearchParams({
+      q: els.evalQ.value,
+      scope: els.evalScope.value,
+      category: els.evalCategory.value,
+      author: els.evalAuthor.value,
+      limit: 500,
+    });
+    const stats = await getJson(`/api/evaluation-stats?${params.toString()}`);
+    state.currentEvalStats = stats;
+  }
+  showEvalStatisticsData();
+}
+
+async function showEvalStatisticsData() {
+  const stats = state.currentEvalStats;
+  if (!stats) return;
+
   els.empty.classList.add("hidden");
   els.detail.classList.remove("hidden");
   const dimensions = stats.dimensions || {};
   els.detail.innerHTML = `
+    <div class="detail-view-tabs">
+      <button class="view-tab-btn" onclick="window.setEvalViewMode('list')">💬 评语详情</button>
+      <button class="view-tab-btn active" onclick="window.setEvalViewMode('stats')">📈 评分统计</button>
+    </div>
     <div class="detail-title">
       <h2>评价统计</h2>
       <span class="badge">二级评语层</span>
     </div>
-    <div class="review-source-note evaluation-layer-warning">只统计已有评价，未评估卡不会按0分计算；这些数据不参与牌面源数据检索。</div>
+    <div class="review-source-note evaluation-layer-warning">只统计当前筛选下的评价，未评估卡不会按0分计算；这些数据不参与牌面源数据检索。</div>
     <div class="stats-grid">
       ${kv("牌库卡牌", `${stats.total_card_count || 0} 张`)}
       ${kv("已有评价", `${stats.reviewed_card_count || 0} 张`)}
@@ -1706,78 +1876,189 @@ async function showEvaluationStatistics() {
     </section>
   `;
 }
+function setTab(tabName) {
+  state.activeTab = tabName;
+  const tabs = {
+    "card-search": els.tabCard,
+    "eval": els.tabEval,
+    "docs": els.tabDocs,
+  };
+  const panels = {
+    "card-search": els.cardSearchPanel,
+    "eval": els.evalPanel,
+    "docs": els.docsPanel,
+  };
+  Object.entries(tabs).forEach(([name, btn]) => btn?.classList.toggle("active", name === tabName));
+  Object.entries(panels).forEach(([name, panel]) => panel?.classList.toggle("hidden", name !== tabName));
 
-async function runSearch() {
-  setDocumentMode(false);
-  state.query = els.query.value;
-  state.scope = els.scope.value;
-  state.abilityType = els.scope.value === "ability" ? els.abilityType.value : "";
-  const params = new URLSearchParams({
-    q: els.query.value,
-    scope: els.scope.value,
-    ability_type: state.abilityType,
-    category: els.category.value,
-    author: els.author.value,
-    sort: els.sort.value,
-    limit: els.limit.value,
-  });
-  const endpoint = state.searchMode === "evaluations" ? "/api/evaluation-search" : "/api/search";
-  const data = await getJson(`${endpoint}?${params.toString()}`);
-  state.results = data.results;
-  if (!state.results.some((row) => row.id === state.activeId)) {
-    state.activeId = null;
-    els.detail.classList.add("hidden");
-    els.empty.classList.remove("hidden");
+  if (tabName === "docs") {
+    if (els.mTabDetail) els.mTabDetail.style.display = "none";
+    if (els.mTabFilter) els.mTabFilter.innerHTML = "📖 目录";
+    if (els.mTabList) els.mTabList.innerHTML = "📄 阅读";
+    setMobileActivePage("filter");
+  } else {
+    if (els.mTabDetail) els.mTabDetail.style.display = "";
+    if (els.mTabFilter) els.mTabFilter.innerHTML = "🎛️ 筛选";
+    if (els.mTabList) els.mTabList.innerHTML = "📋 列表";
+    if (els.mTabDetail) els.mTabDetail.innerHTML = "📊 详情";
+    setMobileActivePage("filter");
   }
+}
+
+async function runCardSearch() {
+  setDocumentMode(false);
+  state.query = els.cardQ.value;
+  state.scope = els.cardScope.value;
+  state.abilityType = els.cardScope.value === "ability" ? els.cardAbilityType.value : "";
+  const params = new URLSearchParams({
+    q: els.cardQ.value,
+    scope: els.cardScope.value,
+    ability_type: state.abilityType,
+    category: els.cardCategory.value,
+    author: els.cardAuthor.value,
+    sort: els.cardSort.value,
+    limit: els.cardLimit.value,
+    is_exclusive: els.cardExclusive.checked ? "1" : "0",
+    is_identity: els.cardIdentity.checked ? "1" : "0",
+  });
+
+  const [searchData, statsData] = await Promise.all([
+    getJson(`/api/search?${params.toString()}`),
+    getJson(`/api/stat-query?${params.toString()}`)
+  ]);
+
+  state.results = searchData.results;
+  state.currentStats = statsData;
+
   renderResults();
+
+  if (state.activeId === null || !state.results.some((row) => row.id === state.activeId)) {
+    state.activeId = null;
+    state.cardDisplayMode = "stats";
+    showCardSearchStatistics();
+    setMobileActivePage("list");
+  } else {
+    state.cardDisplayMode = "detail";
+    loadCard(state.activeId);
+  }
+}
+
+async function runEvalSearch() {
+  setDocumentMode(false);
+  state.query = els.evalQ.value;
+  state.scope = els.evalScope.value;
+  const params = new URLSearchParams({
+    q: els.evalQ.value,
+    scope: els.evalScope.value,
+    category: els.evalCategory.value,
+    author: els.evalAuthor.value,
+    limit: 500,
+  });
+
+  const [searchData, statsData] = await Promise.all([
+    getJson(`/api/evaluation-search?${params.toString()}`),
+    getJson(`/api/evaluation-stats?${params.toString()}`)
+  ]);
+
+  state.results = searchData.results;
+  state.currentEvalStats = statsData;
+
+  renderResults();
+
+  if (state.evalDisplayMode === "stats" || state.activeId === null || !state.results.some((row) => row.id === state.activeId)) {
+    state.activeId = null;
+    state.evalDisplayMode = "stats";
+    showEvalStatisticsData();
+    setMobileActivePage("list");
+  } else {
+    state.evalDisplayMode = "list";
+    loadCard(state.activeId);
+  }
 }
 
 function bindEvents() {
-  els.search.addEventListener("click", runSearch);
-  els.cardSearchMode?.addEventListener("click", () => {
-    setSearchMode("cards");
-    runSearch();
-  });
-  els.evaluationSearchMode?.addEventListener("click", () => {
-    setSearchMode("evaluations");
-    runSearch();
-  });
-  els.reset.addEventListener("click", () => {
-    els.query.value = "";
-    els.scope.value = "all";
-    els.abilityType.value = "";
-    els.abilityTypeField.classList.add("hidden");
-    els.category.value = "";
-    els.author.value = "";
-    els.sort.value = "sheet";
-    els.limit.value = "60";
-    state.currentStats = null;
-    runSearch();
-  });
-  els.statistics.addEventListener("click", () => showStatistics(true));
-  els.evaluationStatistics?.addEventListener("click", showEvaluationStatistics);
-  els.documents.addEventListener("click", () => showDocuments(""));
-  els.query.addEventListener("keydown", (event) => {
-    if (event.key === "Enter") runSearch();
-  });
-  
-  els.scope.addEventListener("change", () => {
-    if (state.searchMode === "cards" && els.scope.value === "ability") {
-      els.abilityTypeField.classList.remove("hidden");
+  // ① Card search panel
+  els.cardSearchBtn?.addEventListener("click", runCardSearch);
+  els.cardQ?.addEventListener("keydown", (e) => { if (e.key === "Enter") runCardSearch(); });
+  els.cardScope?.addEventListener("change", () => {
+    if (els.cardScope.value === "ability") {
+      els.cardAbilityTypeField.classList.remove("hidden");
     } else {
-      els.abilityTypeField.classList.add("hidden");
-      els.abilityType.value = "";
+      els.cardAbilityTypeField.classList.add("hidden");
+      els.cardAbilityType.value = "";
     }
   });
-
-  [els.scope, els.abilityType, els.category, els.author, els.sort, els.limit].forEach((el) => {
-    el.addEventListener("change", runSearch);
+  [els.cardScope, els.cardAbilityType, els.cardCategory, els.cardAuthor, els.cardSort, els.cardLimit]
+    .filter(Boolean)
+    .forEach((el) => el.addEventListener("change", runCardSearch));
+  els.cardExclusive?.addEventListener("change", runCardSearch);
+  els.cardIdentity?.addEventListener("change", runCardSearch);
+  els.cardResetBtn?.addEventListener("click", () => {
+    els.cardQ.value = "";
+    els.cardScope.value = "all";
+    els.cardAbilityType.value = "";
+    els.cardAbilityTypeField.classList.add("hidden");
+    els.cardCategory.value = "";
+    els.cardAuthor.value = "";
+    els.cardSort.value = "sheet";
+    els.cardLimit.value = "60";
+    els.cardExclusive.checked = false;
+    els.cardIdentity.checked = false;
+    runCardSearch();
   });
 
-  els.detail.addEventListener("change", (event) => {
-    if (event.target.name === "statSort") {
-      state.statSortMode = event.target.value;
-      showStatistics(false);
+  // ③ Eval panel
+  els.evalListModeBtn?.addEventListener("click", () => {
+    window.setEvalViewMode("list");
+  });
+  els.evalStatsModeBtn?.addEventListener("click", () => {
+    window.setEvalViewMode("stats");
+  });
+  els.evalSearchBtn?.addEventListener("click", runEvalSearch);
+  els.evalQ?.addEventListener("keydown", (e) => { if (e.key === "Enter") runEvalSearch(); });
+  [els.evalScope, els.evalCategory, els.evalAuthor].filter(Boolean).forEach((el) =>
+    el.addEventListener("change", runEvalSearch)
+  );
+  els.evalResetBtn?.addEventListener("click", () => {
+    els.evalQ.value = "";
+    els.evalScope.value = "all";
+    els.evalCategory.value = "";
+    els.evalAuthor.value = "";
+    runEvalSearch();
+  });
+
+  // Top tab buttons
+  els.tabCard?.addEventListener("click", () => {
+    setTab("card-search");
+    setDocumentMode(false);
+    runCardSearch();
+  });
+  els.tabEval?.addEventListener("click", () => {
+    setTab("eval");
+    setDocumentMode(false);
+    if (state.evalDisplayMode === "stats") {
+      showEvaluationStatistics();
+    } else {
+      runEvalSearch();
+    }
+  });
+  els.tabDocs?.addEventListener("click", () => {
+    setTab("docs");
+    showDocuments("");
+  });
+
+  // 📱 Mobile tab bar bindings
+  els.mTabFilter?.addEventListener("click", () => setMobileActivePage("filter"));
+  els.mTabList?.addEventListener("click", () => setMobileActivePage("list"));
+  els.mTabDetail?.addEventListener("click", () => {
+    if (state.activeId === null) {
+      if (state.activeTab === "card-search") {
+        window.setCardViewMode("stats");
+      } else if (state.activeTab === "eval") {
+        window.setEvalViewMode("stats");
+      }
+    } else {
+      setMobileActivePage("detail");
     }
   });
 }
@@ -1785,8 +2066,8 @@ function bindEvents() {
 async function main() {
   bindEvents();
   await loadMeta();
-  setSearchMode("cards");
-  await runSearch();
+  setTab("card-search");
+  await runCardSearch();
 }
 
 main().catch((error) => {
