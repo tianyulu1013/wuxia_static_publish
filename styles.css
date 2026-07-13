@@ -1760,20 +1760,12 @@ mark {
   line-height: 1.65;
 }
 
-.document-meta-grid {
-  max-width: 1180px;
-  margin: 0 auto 14px;
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
+.mobile-search-toggle {
+  display: none;
 }
 
 @media (max-width: 720px) {
   .document-search {
-    grid-template-columns: 1fr;
-  }
-
-  .document-current-search {
     grid-template-columns: 1fr;
   }
 
@@ -1788,10 +1780,6 @@ mark {
 
   .workspace.document-mode .card-detail {
     padding: 16px;
-  }
-
-  .document-meta-grid {
-    grid-template-columns: 1fr;
   }
 
   .scenario-ability {
@@ -1973,6 +1961,106 @@ mark {
     padding-bottom: 70px;
   }
   .detail-pane {
-    padding: 16px 16px 70px;
+    padding: 0 0 70px;
+  }
+
+  .document-toolbar {
+    padding: 16px 16px 0;
+  }
+  
+  .document-titlebar {
+    padding: 0 16px;
+  }
+  
+  .document-intro,
+  .document-section {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+
+  /* 移动端搜索栏折叠动画与紧凑布局 */
+  .mobile-search-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    background: var(--accent-weak);
+    color: var(--accent);
+    border: 1px solid var(--accent);
+    border-radius: 4px;
+    padding: 4px 8px;
+    font-size: 11px;
+    font-weight: 700;
+    cursor: pointer;
+    min-height: 24px;
+    height: 24px;
+  }
+  
+  .document-titlebar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 12px;
+  }
+  
+  .titlebar-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+
+  .document-current-search {
+    max-height: 0;
+    overflow: hidden;
+    padding: 0 12px;
+    margin: 0;
+    border: none;
+    background: #f8f9fa;
+    border-radius: 6px;
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 6px;
+    transition: max-height 0.25s cubic-bezier(0.4, 0, 0.2, 1), padding 0.25s ease, margin 0.25s ease;
+  }
+  
+  .document-current-search.active {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    background: #ffffff;
+    max-height: 110px;
+    padding: 10px 16px;
+    margin-bottom: 14px;
+    border-bottom: 1px solid var(--line-strong);
+    border-radius: 0;
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.06);
+  }
+  
+  /* 手机端下，输入框占满第一行全部 4 列 */
+  .document-current-search input {
+    grid-column: span 4;
+    height: 32px !important;
+    font-size: 12px;
+    padding: 4px 8px;
+  }
+  
+  /* 手机端下，按钮横向平分排开 */
+  .document-current-search button {
+    grid-column: span 1;
+    min-height: 28px !important;
+    font-size: 11px;
+    padding: 2px 0;
+    text-align: center;
+  }
+  
+  /* 手机端下，计数状态占满整行 */
+  .document-current-search span {
+    grid-column: span 4;
+    text-align: right;
+    font-size: 11px;
+    color: var(--muted);
+    margin-top: 2px;
   }
 }

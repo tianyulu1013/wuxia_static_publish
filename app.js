@@ -1263,6 +1263,16 @@ function bindDocumentDetailEvents() {
       if (target) target.scrollIntoView({ behavior: "smooth", block: "start" });
     });
   });
+
+  els.detail.querySelector("#mobileSearchToggle")?.addEventListener("click", () => {
+    const searchBar = els.detail.querySelector(".document-current-search");
+    if (searchBar) {
+      const isActive = searchBar.classList.toggle("active");
+      if (isActive) {
+        els.detail.querySelector("#documentCurrentSearchInput")?.focus();
+      }
+    }
+  });
 }
 
 function documentMatches() {
@@ -1318,7 +1328,10 @@ function renderDocumentDetail(doc, query = "") {
         <h2>${highlightTerm(doc.title, query)}</h2>
         <p>${escapeHtml(documentVersionLine(doc))}</p>
       </div>
-      <span class="badge">${escapeHtml(doc.group || "\u8d44\u6599")}</span>
+      <div class="titlebar-actions">
+        <span class="badge">${escapeHtml(doc.group || "\u8d44\u6599")}</span>
+        <button id="mobileSearchToggle" class="mobile-search-toggle" type="button" aria-label="\u641c\u7d22\u672c\u6587">\ud83d\udd0d \u641c\u672c\u6587</button>
+      </div>
     </div>
     <div class="document-current-search">
       <input id="documentCurrentSearchInput" type="search" value="${escapeHtml(query)}" placeholder="\u5728\u5f53\u524d\u6587\u6863\u4e2d\u641c\u7d22" autocomplete="off" />
@@ -1327,11 +1340,6 @@ function renderDocumentDetail(doc, query = "") {
       <button id="documentPrevMatchButton" type="button" ${query && matchCount ? "" : "disabled"}>\u4e0a\u4e00\u5904</button>
       <button id="documentNextMatchButton" type="button" ${query && matchCount ? "" : "disabled"}>\u4e0b\u4e00\u5904</button>
       <span id="documentMatchStatus">${query && matchCount ? `1 / ${matchCount}` : ""}</span>
-    </div>
-    <div class="document-meta-grid">
-      ${kv("\u7c7b\u578b", doc.kind)}
-      ${kv("\u6587\u4ef6", doc.source_path || doc.path)}
-      ${kv("\u5927\u5c0f", doc.size ? `${Math.round(Number(doc.size) / 1024)} KB` : "")}
     </div>
     ${doc.description ? `<div class="document-intro">${highlightTerm(doc.description, query)}</div>` : ""}
     <div class="document-section">
