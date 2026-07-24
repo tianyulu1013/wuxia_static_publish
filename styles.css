@@ -2021,3 +2021,197 @@ mark {
     margin-top: 2px;
   }
 }
+
+/* 卡牌历史版本及切换组件样式 */
+.version-switcher {
+  display: flex;
+  gap: 8px;
+  margin: 16px 0;
+  padding: 4px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+}
+
+.version-btn {
+  flex: 1;
+  padding: 8px 12px;
+  border-radius: 3px;
+  font-size: 13px;
+  background: transparent;
+  color: var(--muted);
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-align: center;
+  font-weight: 500;
+}
+
+.version-btn:hover {
+  background: rgba(0, 0, 0, 0.05);
+  color: var(--text);
+}
+
+.version-btn.active {
+  background: var(--accent);
+  color: #fff;
+  font-weight: 700;
+  box-shadow: var(--shadow);
+}
+
+.version-history-alert {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  background: #fff8eb;
+  border: 1px solid #ffe8cc;
+  border-left: 4px solid #f76707;
+  padding: 10px 14px;
+  margin-bottom: 16px;
+  border-radius: 4px;
+  font-size: 13px;
+  color: #d9480f;
+  font-weight: 500;
+  line-height: 1.5;
+}
+
+.version-history-alert svg {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  fill: currentColor;
+  margin-top: 2px;
+}
+
+.view-changelog-inline-btn {
+  background: transparent;
+  border: none;
+  color: var(--accent);
+  text-decoration: underline;
+  font-weight: 700;
+  cursor: pointer;
+  margin-left: 6px;
+  padding: 0;
+  font-size: 13px;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  transition: color 0.2s ease;
+}
+
+.view-changelog-inline-btn:hover {
+  color: #1a4d44;
+}
+
+/* 历史版本下拉选择框容器 */
+.version-switcher-select-container {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 16px 0;
+  padding: 8px 12px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+}
+
+.version-switcher-select-container label {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.version-select {
+  flex: 1;
+  min-height: 32px !important;
+  height: 32px !important;
+  font-size: 13px;
+  padding: 4px 8px;
+  background: #fff;
+  border: 1px solid var(--line-strong);
+  border-radius: 3px;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.version-select:focus {
+  outline: 2px solid rgba(37, 107, 95, 0.2);
+  border-color: var(--accent);
+}
+
+/* 更新日志与文档排版优化样式 */
+.code-block {
+  background: #f8f9fa;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 12px 16px;
+  overflow-x: auto;
+  margin: 16px 0;
+}
+
+.code-block code {
+  font-family: SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 13px;
+  color: var(--text);
+  line-height: 1.6;
+}
+
+.diff-block {
+  background: #f8f9fa;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 12px 0;
+  overflow-x: auto;
+  margin: 16px 0;
+  font-family: SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.diff-line {
+  padding: 2px 16px;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.diff-line.diff-del {
+  background-color: #ffebe9;
+  color: #cf222e;
+}
+
+.diff-line.diff-add {
+  background-color: #e6ffec;
+  color: #0969da;
+}
+
+.table-container {
+  overflow-x: auto;
+  margin: 16px 0;
+  border-radius: 4px;
+  border: 1px solid var(--line);
+}
+
+.table-container table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+}
+
+.table-container th, .table-container td {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line);
+  font-size: 13.5px;
+}
+
+.table-container th {
+  background: var(--bg);
+  font-weight: 700;
+  color: var(--text);
+  border-bottom: 2px solid var(--line-strong);
+}
+
+.table-container tr:last-child td {
+  border-bottom: none;
+}
+

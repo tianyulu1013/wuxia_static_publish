@@ -1,6 +1,7 @@
 const state = {
   results: [],
   activeId: null,
+  selectedCardVersionId: null,
   query: "",
   scope: "all",
   abilityType: "",
@@ -1163,23 +1164,108 @@ function documentTextForSearch(doc) {
 function renderDocumentText(content, query = "") {
   const raw = String(content || "").replace(/\r\n/g, "\n").trim();
   if (!raw) return "";
-  const blocks = raw.split(/\n{2,}/).filter((block) => block.trim());
-  return `
-    <div class="document-text">
-      ${blocks.map((block) => {
-        const text = block.trim();
-        if (/^#{1,4}\s+/.test(text)) {
-          const level = Math.min((text.match(/^#+/) || [""])[0].length + 3, 6);
-          return `<h${level}>${highlightTerm(text.replace(/^#{1,4}\s+/, ""), query)}</h${level}>`;
+
+  let html = '<div class="document-text">';
+  let pos = 0;
+  while (pos < raw.length) {
+    if (raw.substring(pos, pos + 3) === "```") {
+      const endIdx = raw.indexOf("```", pos + 3);
+      if (endIdx !== -1) {
+        const blockText = raw.substring(pos, endIdx + 3);
+        const match = blockText.match(/^```(\w+)?\n([\s\S]*?)\n?```$/);
+        const lang = match ? match[1] || "" : "";
+        const code = match ? match[2] : blockText.slice(3, -3);
+        
+        if (lang === "diff") {
+          const lines = code.split("\n");
+          const renderedLines = lines.map(line => {
+            if (line.startsWith("-")) {
+              return `<div class="diff-line diff-del">${escapeHtml(line)}</div>`;
+            } else if (line.startsWith("+")) {
+              return `<div class="diff-line diff-add">${escapeHtml(line)}</div>`;
+            } else {
+              return `<div class="diff-line">${escapeHtml(line)}</div>`;
+            }
+          }).join("");
+          html += `<div class="diff-block">${renderedLines}</div>`;
+        } else {
+          html += `<pre class="code-block"><code>${escapeHtml(code)}</code></pre>`;
         }
-        if (/^[-*]\s+/.test(text)) {
-          const items = text.split("\n").map((line) => line.replace(/^[-*]\s+/, "").trim()).filter(Boolean);
-          return `<ul>${items.map((item) => `<li>${highlightTerm(item, query)}</li>`).join("")}</ul>`;
+        pos = endIdx + 3;
+        continue;
+      }
+    }
+    
+    const lineEndForTable = raw.indexOf("\n", pos);
+    const lineForTable = lineEndForTable !== -1 ? raw.substring(pos, lineEndForTable) : raw.substring(pos);
+    if (lineForTable.trim().startsWith("|")) {
+      let tableEnd = pos;
+      let tableLines = [];
+      while (tableEnd < raw.length) {
+        const le = raw.indexOf("\n", tableEnd);
+        const l = le !== -1 ? raw.substring(tableEnd, le) : raw.substring(tableEnd);
+        if (l.trim().startsWith("|")) {
+          tableLines.push(l.trim());
+          tableEnd = le !== -1 ? le + 1 : raw.length;
+        } else {
+          break;
         }
-        return `<p>${highlightTerm(text, query)}</p>`;
-      }).join("")}
-    </div>
-  `;
+      }
+      
+      if (tableLines.length > 0) {
+        html += `<div class="table-container"><table>`;
+        tableLines.forEach((tline, idx) => {
+          if (tline.replace(/[\s|:\-]/g, "") === "") {
+            return;
+          }
+          const cells = tline.split("|").slice(1, -1).map(c => c.trim());
+          const cellTag = (idx === 0) ? "th" : "td";
+          html += `<tr>${cells.map(c => `<${cellTag}>${highlightTerm(c, query)}</${cellTag}>`).join("")}</tr>`;
+        });
+        html += `</table></div>`;
+        pos = tableEnd;
+        continue;
+      }
+    }
+    
+    const nextLineEnd = raw.indexOf("\n", pos);
+    let line = nextLineEnd !== -1 ? raw.substring(pos, nextLineEnd) : raw.substring(pos);
+    
+    if (line.trim() === "") {
+      pos = nextLineEnd !== -1 ? nextLineEnd + 1 : raw.length;
+      continue;
+    }
+    
+    let blockLines = [];
+    let pEnd = pos;
+    while (pEnd < raw.length) {
+      const le = raw.indexOf("\n", pEnd);
+      const l = le !== -1 ? raw.substring(pEnd, le) : raw.substring(pEnd);
+      const trimmed = l.trim();
+      if (trimmed === "" || l.startsWith("```") || l.startsWith("|")) {
+        break;
+      }
+      blockLines.push(l);
+      pEnd = le !== -1 ? le + 1 : raw.length;
+    }
+    
+    const blockText = blockLines.join("\n").trim();
+    if (blockText) {
+      if (/^#{1,4}\s+/.test(blockText)) {
+        const level = Math.min((blockText.match(/^#+/) || [""])[0].length + 3, 6);
+        html += `<h${level}>${highlightTerm(blockText.replace(/^#{1,4}\s+/, ""), query)}</h${level}>`;
+      } else if (/^[-*]\s+/.test(blockText)) {
+        const items = blockText.split("\n").map(l => l.replace(/^[-*]\s+/, "").trim()).filter(Boolean);
+        html += `<ul>${items.map(item => `<li>${highlightTerm(item, query)}</li>`).join("")}</ul>`;
+      } else {
+        html += `<p>${highlightTerm(blockText, query)}</p>`;
+      }
+    }
+    pos = pEnd;
+  }
+  
+  html += "</div>";
+  return html;
 }
 
 function isScenarioDocument(doc) {
@@ -1415,11 +1501,29 @@ function renderDocumentDetail(doc, query = "") {
 
 async function loadDocument(id) {
   setDocumentMode(true);
-  els.detail.innerHTML = `<div class="empty-state">\u8bfb\u53d6\u6587\u6863\u4e2d...</div>`;
+  els.detail.innerHTML = `<div class="empty-state">读取文档中...</div>`;
+  
+  if (els.docsSidebarList && !els.docsSidebarList.querySelector("[data-sidebar-doc-id]")) {
+    try {
+      const docsData = await getJson("/api/documents");
+      const documents = Array.isArray(docsData.results) ? docsData.results : (Array.isArray(docsData.documents) ? docsData.documents : []);
+      renderDocsSidebarList(documents);
+    } catch (e) {
+      console.error("Failed to load documents list for sidebar:", e);
+    }
+  }
+
   const doc = await getJson(`/api/document/${encodeURIComponent(id)}`);
   state.activeId = `document:${id}`;
   renderDocumentDetail(doc, "");
   setMobileActivePage("detail");
+
+  if (els.docsSidebarList) {
+    els.docsSidebarList.querySelectorAll(".docs-sidebar-item").forEach((btn) => {
+      const isCurrent = btn.dataset.sidebarDocId === id;
+      btn.classList.toggle("active", isCurrent);
+    });
+  }
 }
 
 function renderDocumentHome(documents, searchText = "") {
@@ -1790,6 +1894,7 @@ function renderChangeCandidates(candidates) {
 
 async function loadCard(id, isUserTriggered = false) {
   state.activeId = id;
+  state.selectedCardVersionId = null; // 重置选中的版本
   if (state.activeTab === "card-search") {
     state.cardDisplayMode = "detail";
   } else if (state.activeTab === "eval") {
@@ -1802,8 +1907,35 @@ async function loadCard(id, isUserTriggered = false) {
   }
   renderResults();
   const card = await getJson(`/api/card/${encodeURIComponent(id)}`);
+  state.currentCard = card; // 缓存当前卡牌完整数据
+  
   els.empty.classList.add("hidden");
   els.detail.classList.remove("hidden");
+  renderCardDetail();
+}
+
+window.switchCardVersion = function(versionId) {
+  state.selectedCardVersionId = versionId;
+  renderCardDetail();
+};
+
+window.viewChangelog = function(docId) {
+  setTab("docs");
+  loadDocument(docId);
+};
+
+function renderCardDetail() {
+  const card = state.currentCard;
+  if (!card) return;
+  
+  let displayCard = card;
+  if (state.selectedCardVersionId) {
+    const hist = (card.history || []).find(h => h.card_version_id === state.selectedCardVersionId);
+    if (hist) {
+      displayCard = hist;
+    }
+  }
+
   els.detail.innerHTML = `
     ${(() => {
       if (state.activeTab === "card-search") {
@@ -1824,43 +1956,89 @@ async function loadCard(id, isUserTriggered = false) {
       return "";
     })()}
     <div class="detail-title">
-      <h2>${highlight(card.title, "title")}</h2>
-      <span class="badge ${categoryClass(card.category)}">${escapeHtml(card.category_label)}</span>
+      <h2>${highlight(displayCard.title, "title")}</h2>
+      <span class="badge ${categoryClass(displayCard.category)}">${escapeHtml(displayCard.category_label)}</span>
     </div>
+    
+    ${card.history && card.history.length > 0 ? (() => {
+      if (card.history.length <= 2) {
+        return `
+          <div class="version-switcher">
+            <button class="version-btn ${!state.selectedCardVersionId ? 'active' : ''}" onclick="window.switchCardVersion(null)">当前版本</button>
+            ${card.history.map(h => `
+              <button class="version-btn ${state.selectedCardVersionId === h.card_version_id ? 'active' : ''}" onclick="window.switchCardVersion('${escapeHtml(h.card_version_id)}')">${escapeHtml(h.display_label)}</button>
+            `).join("")}
+          </div>
+        `;
+      } else {
+        return `
+          <div class="version-switcher-select-container">
+            <label for="versionSelect">选择版本：</label>
+            <select id="versionSelect" class="version-select" onchange="window.switchCardVersion(this.value || null)">
+              <option value="" ${!state.selectedCardVersionId ? 'selected' : ''}>当前版本 (最新)</option>
+              ${card.history.map(h => `
+                <option value="${escapeHtml(h.card_version_id)}" ${state.selectedCardVersionId === h.card_version_id ? 'selected' : ''}>
+                  ${escapeHtml(h.display_label)} (${escapeHtml(h.superseded_by_release)} 前)
+                </option>
+              `).join("")}
+            </select>
+          </div>
+        `;
+      }
+    })() : ""}
+    
+    ${state.selectedCardVersionId ? `
+      <div class="version-history-alert">
+        <svg viewBox="0 0 24 24">
+          <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/>
+        </svg>
+        <div>
+          您正在查看历史版本（${escapeHtml(displayCard.superseded_by_release)} 修改前版本）
+          <button class="view-changelog-inline-btn" onclick="window.viewChangelog('changelog-${escapeHtml(displayCard.superseded_by_release)}')">
+            📖 查阅该版本更新日志
+          </button>
+        </div>
+      </div>
+    ` : ""}
+
     <div class="detail-grid">
       ${(() => {
-        const isChar = card.category === "combat_characters" || card.category === "attached_characters" || card.category === "deprecated";
-        const isItem = card.category === "items";
+        const isChar = displayCard.category === "combat_characters" || displayCard.category === "attached_characters" || displayCard.category === "deprecated";
+        const isItem = displayCard.category === "items";
         let html = "";
         if (isChar) {
-          html += kv("\u751f\u547d", card.life);
-          html += kv("\u6027\u522b", card.gender);
-          html += kv("\u5175\u5668", card.weapons);
+          html += kv("血量", displayCard.life);
+          html += kv("性别", displayCard.gender);
+          html += kv("兵器", displayCard.weapons);
         } else if (isItem) {
-          html += kv("\u7c7b\u522b", card.item_category);
-          html += kv("\u7279\u6027", card.traits);
+          html += kv("类别", displayCard.item_category);
+          html += kv("特性", displayCard.traits);
         }
-        html += kv("\u51fa\u5904", card.source_work);
-        html += kv("\u4f5c\u8005", card.author_group);
-        html += kv("\u4f4d\u7f6e", `${card.source_sheet}!${card.source_row}`);
-        html += kv("ID", card.id);
+        html += kv("出处", displayCard.source_work);
+        html += kv("作者", displayCard.author_group);
+        if (displayCard.source_sheet && displayCard.source_row) {
+          html += kv("位置", `${displayCard.source_sheet}!${displayCard.source_row}`);
+        } else {
+          html += kv("位置", "历史归档");
+        }
+        html += kv("ID", displayCard.id);
         return html;
       })()}
     </div>
-    ${card.image_url ? `
+    ${displayCard.image_url ? `
       <figure class="card-face">
-        <img src="${escapeHtml(card.image_url)}" alt="${escapeHtml(card.title)} \u5361\u9762">
+        <img src="${escapeHtml(displayCard.image_url)}" alt="${escapeHtml(displayCard.title)} 卡面">
       </figure>
     ` : ""}
-    ${renderIdentityRules(card)}
+    ${renderIdentityRules(displayCard)}
     <div class="section">
-      <h3>\u63cf\u8ff0</h3>
-      ${renderUnitGroups(card)}
+      <h3>描述</h3>
+      ${renderUnitGroups(displayCard)}
     </div>
     ${renderStructureNotes(card.structure_notes)}
     <div class="section">
-      <h3>\u5173\u7cfb</h3>
-      <div class="text-block">${highlight(card.relationships || "\u2014", "relationships")}</div>
+      <h3>关系</h3>
+      <div class="text-block">${highlight(displayCard.relationships || "—", "relationships")}</div>
     </div>
     ${renderReviewLayer(card.review)}
     ${renderUnderstandingLayer(card.understanding_note)}
