@@ -387,11 +387,15 @@ function getStaticJson(url) {
     const valuesForScope = (item) => {
       const summary = item.summary || {};
       const survival = summary.survival || {};
+      const output = summary.output || {};
+      const globalInfluence = summary.global_influence || {};
       const risks = summary.risks || {};
       const fields = {
         title: item.title || "",
         positioning: `${summary.core_positioning || ""}\n${summary.overall || ""}`,
         survival: JSON.stringify(survival),
+        side_output: JSON.stringify(output),
+        global_influence: JSON.stringify(globalInfluence),
         pros: (summary.pros || []).join("\n"),
         cons: (summary.cons || []).join("\n"),
         questions: (summary.questions || []).map((entry) => entry.question || "").join("\n"),
@@ -939,9 +943,109 @@ function renderEvaluationMethodology(methodology) {
   `;
 }
 
-function renderEvaluationSummary(summary) {
+function metricValue(value, suffix = "") {
+  if (value == null || value === "") return "待定";
+  if (typeof value === "number") {
+    const rendered = Number.isInteger(value) ? String(value) : String(Math.round(value * 100) / 100);
+    return `${rendered}${suffix}`;
+  }
+  return `${value}${suffix}`;
+}
+
+function scoreValue(value) {
+  return value == null || value === "" ? "待定" : `${value}/100`;
+}
+
+function renderEvaluationScores(entry) {
+  const summary = entry.summary && typeof entry.summary === "object" ? entry.summary : {};
+  const scores = summary.dimension_scores && typeof summary.dimension_scores === "object"
+    ? summary.dimension_scores
+    : {};
+  const scoreItems = [
+    ["总评分", entry.strength_score ?? scores.total ?? scores.strength],
+    ["泛用性评分", entry.generality_score ?? scores.generality],
+    ["战斗评分", scores.combat],
+    ["正面输出评分", scores.front_output],
+    ["侧面输出评分", scores.side_output],
+    ["正面生存评分", scores.front_survival],
+    ["侧面生存评分", scores.side_survival],
+    ["全局影响评分", scores.global_influence],
+  ];
+  return `
+    <section class="evaluation-dashboard-block">
+      <h4>评分系统</h4>
+      <div class="evaluation-score-grid">
+        ${scoreItems.map(([label, value]) => `
+          <div class="evaluation-number-card ${value == null ? "is-pending" : ""}">
+            <span>${escapeHtml(label)}</span>
+            <strong>${escapeHtml(scoreValue(value))}</strong>
+          </div>
+        `).join("")}
+      </div>
+      <div class="review-source-note">尚未建立或尚未评定的分数统一标记为“待定”，不从统计数字自动换算。</div>
+    </section>
+  `;
+}
+
+function renderEvaluationStatistics(statistics) {
+  const data = statistics && typeof statistics === "object" ? statistics : {};
+  const frontModels = Array.isArray(data.front_output_models) ? data.front_output_models : [];
+  const sideModels = Array.isArray(data.side_output_models) ? data.side_output_models : [];
+  const front = frontModels.find((model) => model && model.topline)
+    || (frontModels[0] && typeof frontModels[0] === "object" ? frontModels[0] : {});
+  const side = sideModels.find((model) => model && model.topline)
+    || (sideModels[0] && typeof sideModels[0] === "object" ? sideModels[0] : {});
+  const frontSurvival = data.front_survival && typeof data.front_survival === "object"
+    ? data.front_survival
+    : {};
+  const sideSurvival = data.side_survival && typeof data.side_survival === "object"
+    ? data.side_survival
+    : {};
+  const stats = [
+    ["正面输出期望", front.expectation],
+    ["正面输出标准差", front.standard_deviation],
+    ["侧面输出期望", side.expectation],
+    ["侧面输出标准差", side.standard_deviation],
+    ["确定穿透期望", front.penetration_expected_amount],
+    ["穿透率", front.penetration_fraction == null
+      ? null
+      : `${Math.round(front.penetration_fraction * 10000) / 100}%`],
+    ["正面单回合生存率", frontSurvival.single_turn_survival_probability == null
+      ? null
+      : `${Math.round(frontSurvival.single_turn_survival_probability * 10000) / 100}%`],
+    ["正面生存回合期望", frontSurvival.expected_turns],
+    ["侧面生存统计", sideSurvival.expected_turns],
+    ["全局影响统计", null],
+  ];
+  return `
+    <section class="evaluation-dashboard-block">
+      <h4>统计系统</h4>
+      <div class="evaluation-score-grid evaluation-statistics-overview">
+        ${stats.map(([label, value]) => `
+          <div class="evaluation-number-card ${value == null ? "is-pending" : ""}">
+            <span>${escapeHtml(label)}</span>
+            <strong>${escapeHtml(metricValue(value))}</strong>
+          </div>
+        `).join("")}
+      </div>
+      <div class="review-source-note">这里只显示每个维度的一项主基线数据；分支、条件、截断和完整分布统一放在下方推理中。</div>
+    </section>
+  `;
+}
+
+function renderEvaluationReasoning(summary) {
   if (!summary || typeof summary !== "object") return "";
   const survival = summary.survival && typeof summary.survival === "object" ? summary.survival : {};
+  const output = summary.output && typeof summary.output === "object" ? summary.output : {};
+  const penetration = output.penetration && typeof output.penetration === "object"
+    ? output.penetration
+    : {};
+  const penetrationText = typeof output.penetration === "string"
+    ? output.penetration
+    : penetration.summary || "旧批次未单列穿透点数。";
+  const globalInfluence = summary.global_influence && typeof summary.global_influence === "object"
+    ? summary.global_influence
+    : {};
   const front = survival.front && typeof survival.front === "object" ? survival.front : {};
   const side = survival.side && typeof survival.side === "object" ? survival.side : {};
   const risks = summary.risks && typeof summary.risks === "object" ? summary.risks : {};
@@ -955,11 +1059,39 @@ function renderEvaluationSummary(summary) {
   `;
   return `
     <div class="evaluation-summary">
+      <h4>评语与推理</h4>
       ${summary.core_positioning ? renderReviewField("核心定位", summary.core_positioning) : ""}
-      ${summary.overall ? renderReviewField("一句话总评", summary.overall) : ""}
+      ${summary.overall ? renderReviewField("综合判断", summary.overall) : ""}
       <div class="evaluation-survival-grid">
         ${survivalCard("正面生存", front)}
         ${survivalCard("侧面生存", side)}
+      </div>
+      <div class="evaluation-output-grid">
+        <div class="evaluation-summary-card">
+          <div class="evaluation-summary-label">正面目标输出</div>
+          <div class="text-block">${highlight(output.front_target || "旧批次未单列此项。")}</div>
+        </div>
+        <div class="evaluation-summary-card">
+          <div class="evaluation-summary-label">侧面目标输出</div>
+          <div class="text-block">${highlight(output.side_target || "旧批次未单列此项。")}</div>
+        </div>
+        <div class="evaluation-summary-card">
+          <div class="evaluation-summary-label">场下输出</div>
+          <div class="text-block">${highlight(output.off_field || "旧批次未单列此项。")}</div>
+        </div>
+        <div class="evaluation-summary-card">
+          <div class="evaluation-summary-label">确定穿透输出</div>
+          <div class="text-block">${highlight(penetrationText)}</div>
+        </div>
+        <div class="evaluation-summary-card">
+          <div class="evaluation-summary-label">全局影响${globalInfluence.tier ? ` · ${escapeHtml(globalInfluence.tier)}` : ""}</div>
+          <div class="text-block">${highlight([
+            globalInfluence.allied_support,
+            globalInfluence.enemy_suppression,
+            globalInfluence.board_control,
+            globalInfluence.net_value,
+          ].filter(Boolean).join(" ")) || "旧批次未单列此项。"}</div>
+        </div>
       </div>
       <div class="evaluation-procon-grid">
         <div>${renderReviewField("优点", summary.pros && summary.pros.length ? summary.pros : ["旧批次未单列。"] )}</div>
@@ -977,13 +1109,57 @@ function renderEvaluationSummary(summary) {
   `;
 }
 
-function renderEvaluationLayer(evaluation) {
+function renderUnderstandingSupplement(note) {
+  if (!note || Object.keys(note).length === 0) return "";
+  const hasAuthorRulings = Array.isArray(note.author_rulings) && note.author_rulings.length > 0;
+  const content = [
+    renderReviewField("核心定位", note.core_positioning),
+    renderReviewField("实战价值", note.practical_value),
+    renderReviewField("作者裁定", hasAuthorRulings ? note.author_rulings : ["暂无作者校准。"]),
+    renderReviewField("关键机制", note.key_mechanics),
+    renderReviewField("玩法提示", note.strategy_notes),
+    renderReviewField("规则风险", note.rules_risks),
+    renderReviewField("AI易误判", note.ai_misread_risks),
+    renderReviewField("待校准问题", note.needs_author_review),
+  ].filter(Boolean).join("");
+  if (!content) return "";
+  return `
+    <details class="review-details understanding-supplement">
+      <summary>补充理解笔记与作者裁定</summary>
+      ${content}
+    </details>
+  `;
+}
+
+function renderEvaluationLayer(evaluation, understandingNote) {
   const data = evaluation && typeof evaluation === "object"
     ? evaluation
     : { status: "unreviewed", status_label: "未评估", entries: [] };
   const status = data.status || "unreviewed";
   const entries = Array.isArray(data.entries) ? data.entries : [];
-  const entryHtml = entries.map((entry) => `
+  const entryHtml = entries.map((entry) => {
+    const detailSections = Array.isArray(entry.detail_sections) ? entry.detail_sections : [];
+    const detailedReview = detailSections.length
+      ? `
+        <div class="evaluation-dimension-details">
+          <div class="evaluation-summary-label">详细评审维度</div>
+          ${detailSections.map((section) => `
+            <details class="review-details evaluation-full-text">
+              <summary>${escapeHtml(section.label || section.key || "详细评审")}</summary>
+              <div class="text-block">${highlight(section.content || "")}</div>
+              <div class="review-source-note">来源：${escapeHtml(section.path || "")}</div>
+            </details>
+          `).join("")}
+        </div>
+      `
+      : `
+        <details class="review-details evaluation-full-text">
+          <summary>查看评审正文</summary>
+          <div class="text-block">${highlight(entry.full_text || "")}</div>
+          <div class="review-source-note">来源：${escapeHtml(entry.source_path || "二级评价库")}</div>
+        </details>
+      `;
+    return `
     <article class="evaluation-entry">
       <div class="evaluation-score-row">
         <strong>${escapeHtml(entry.display_title || entry.card_title || "评审条目")}</strong>
@@ -993,57 +1169,26 @@ function renderEvaluationLayer(evaluation) {
       <div class="review-source-note">
         Batch ${escapeHtml(entry.batch)} · ${escapeHtml(entry.category_label || "未识别类别")} · ${escapeHtml(entry.status_label || "AI评估·未校准")}
       </div>
-      ${renderEvaluationSummary(entry.summary)}
-      <details class="review-details evaluation-full-text">
-        <summary>查看完整评审正文（未压缩）</summary>
-        <div class="text-block">${highlight(entry.full_text || "")}</div>
-        <div class="review-source-note">来源：${escapeHtml(entry.source_path || "二级评价库")}</div>
-      </details>
+      ${renderEvaluationScores(entry)}
+      ${renderEvaluationStatistics(entry.statistics)}
+      ${renderEvaluationReasoning(entry.summary)}
+      ${detailSections.length ? "" : renderUnderstandingSupplement(understandingNote)}
+      ${detailedReview}
     </article>
-  `).join("");
-  const empty = entries.length ? "" : `<div class="evaluation-empty">这张卡尚无评价信息。</div>`;
+  `;
+  }).join("");
+  const empty = entries.length
+    ? ""
+    : `<div class="evaluation-empty">这张卡尚无正式评价信息。${renderUnderstandingSupplement(understandingNote)}</div>`;
   return `
     <div class="section evaluation-section">
       <div class="review-heading">
         <h3>评审与理解</h3>
         <span class="review-status ${escapeHtml(status)}">${escapeHtml(data.status_label || reviewStatusLabel(status))}</span>
       </div>
-      <div class="review-source-note">二级评价数据，不是牌面源数据。AI评分未经作者校准时仅供参考。</div>
+      <div class="review-source-note">二级评价数据，不是牌面源数据。数字优先展示，随后才是评语与推理；每张卡只显示一个评审区块和一个版本。</div>
       ${entryHtml || empty}
       ${renderEvaluationMethodology(state.evaluationMethodology)}
-    </div>
-  `;
-}
-
-function renderUnderstandingLayer(note) {
-  if (!note || Object.keys(note).length === 0) return "";
-  const status = note.status || "ai_draft";
-  const hasAuthorRulings = Array.isArray(note.author_rulings) && note.author_rulings.length > 0;
-  const summary = [
-    renderReviewField("核心定位", note.core_positioning),
-    renderReviewField("实战价值", note.practical_value),
-    renderReviewField("泛用性", note.generality),
-  ].filter(Boolean).join("");
-  const extra = [
-    renderReviewField("作者裁定", hasAuthorRulings ? note.author_rulings : ["暂无作者校准。"]),
-    renderReviewField("关键机制", note.key_mechanics),
-    renderReviewField("玩法提示", note.strategy_notes),
-    renderReviewField("规则风险", note.rules_risks),
-    renderReviewField("AI易误判", note.ai_misread_risks),
-    renderReviewField("待校准问题", note.needs_author_review),
-    renderReviewField("艺术形象参考", note.flavor_alignment),
-    renderReviewField("资料/来源说明", note.source_research),
-  ].filter(Boolean).join("");
-  const content = `${summary}${extra ? `<details class="review-details"><summary>更多评审信息</summary>${extra}</details>` : ""}`;
-  if (!content) return "";
-  return `
-    <div class="section understanding-section">
-      <div class="review-heading">
-        <h3>评审与理解</h3>
-        <span class="review-status ${escapeHtml(status)}">${escapeHtml(reviewStatusLabel(status))}</span>
-      </div>
-      <div class="review-source-note">这是评语层内容，不是牌面源数据。${hasAuthorRulings ? "有作者校准内容。" : "暂无作者校准。"}</div>
-      ${content}
     </div>
   `;
 }
@@ -1497,6 +1642,10 @@ function renderDocumentDetail(doc, query = "") {
   `;
   bindDocumentDetailEvents();
   if (query) window.setTimeout(() => jumpDocumentMatch(0), 0);
+
+  if (window.Glossary && window.Glossary.isReady()) {
+    window.Glossary.apply(els.detail);
+  }
 }
 
 async function loadDocument(id) {
@@ -2041,11 +2190,14 @@ function renderCardDetail() {
       <div class="text-block">${highlight(displayCard.relationships || "—", "relationships")}</div>
     </div>
     ${renderReviewLayer(card.review)}
-    ${renderUnderstandingLayer(card.understanding_note)}
-    ${renderEvaluationLayer(card.evaluation)}
+    ${renderEvaluationLayer(card.evaluation, card.understanding_note)}
     ${renderMaintenanceTodos(card.maintenance_todos)}
     ${renderChangeCandidates(card.change_candidates)}
   `;
+
+  if (window.Glossary && window.Glossary.isReady()) {
+    window.Glossary.apply(els.detail);
+  }
 }
 
 function renderEvaluationDimension(key, dimension) {

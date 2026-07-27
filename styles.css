@@ -915,6 +915,96 @@ button:hover {
   margin-top: 10px;
 }
 
+.evaluation-dashboard-block {
+  margin-top: 14px;
+  border-top: 1px solid #d9e2eb;
+  padding-top: 12px;
+}
+
+.evaluation-dashboard-block h4,
+.evaluation-summary h4 {
+  margin: 0 0 10px;
+  color: #234d72;
+  font-size: 16px;
+}
+
+.evaluation-score-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.evaluation-number-card {
+  display: flex;
+  min-height: 66px;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 8px;
+  border: 1px solid #cad8e5;
+  border-radius: 6px;
+  background: #fff;
+  padding: 9px 10px;
+}
+
+.evaluation-number-card span {
+  color: #5c6f80;
+  font-size: 12px;
+}
+
+.evaluation-number-card strong {
+  color: #1d537e;
+  font-size: 18px;
+}
+
+.evaluation-number-card.is-pending {
+  border-style: dashed;
+  background: #fafbfc;
+}
+
+.evaluation-number-card.is-pending strong {
+  color: #7d858d;
+}
+
+.evaluation-statistics-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.evaluation-stat-group {
+  border: 1px solid #d7e0e9;
+  border-radius: 6px;
+  background: #fff;
+  padding: 10px;
+}
+
+.evaluation-stat-model + .evaluation-stat-model {
+  margin-top: 9px;
+  border-top: 1px dashed #d2dbe4;
+  padding-top: 9px;
+}
+
+.evaluation-stat-model > strong {
+  display: block;
+  margin-bottom: 7px;
+  color: #315779;
+}
+
+.compact-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 5px 10px;
+}
+
+.compact-stats-grid span {
+  color: #667686;
+  font-size: 12px;
+}
+
+.compact-stats-grid b {
+  color: #273a4b;
+}
+
 .evaluation-score-row {
   display: flex;
   flex-wrap: wrap;
@@ -936,6 +1026,7 @@ button:hover {
 }
 
 .evaluation-survival-grid,
+.evaluation-output-grid,
 .evaluation-procon-grid,
 .evaluation-risk-grid,
 .evaluation-dimension-grid {
@@ -1039,11 +1130,20 @@ button:hover {
 }
 
 @media (max-width: 780px) {
+  .evaluation-score-grid,
+  .evaluation-statistics-grid,
   .evaluation-survival-grid,
+  .evaluation-output-grid,
   .evaluation-procon-grid,
   .evaluation-risk-grid,
   .evaluation-dimension-grid {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (min-width: 781px) and (max-width: 1100px) {
+  .evaluation-score-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
@@ -2214,4 +2314,3 @@ mark {
 .table-container tr:last-child td {
   border-bottom: none;
 }
-
